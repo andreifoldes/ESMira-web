@@ -18,6 +18,7 @@ export type QType =
   | 'time'
   | 'date'
   | 'va_scale'
+  | 'cognitive'
   | 'info';
 
 export interface PreloadedQuestion {

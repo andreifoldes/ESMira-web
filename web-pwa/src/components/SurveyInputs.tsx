@@ -65,7 +65,7 @@ export function SurveyInputs({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         className="self-start w-full"
       >
-        {question.type === 'info' && question.launch_url ? (
+        {question.type === 'cognitive' ? (
           <CognitiveCard
             question={question}
             textSizeClass={textSizeClass}

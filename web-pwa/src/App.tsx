@@ -36,6 +36,13 @@ interface ChatMsg {
   qid?: string;
 }
 
+interface M2c2Complete {
+  type: string;
+  assessment?: string;
+  summary?: { n_trials?: number; duration_s?: number | null; correct_count?: number | null };
+  data?: unknown;
+}
+
 const TEXT_SIZE_CLASS: Record<TextSize, string> = {
   normal: 'text-[15px]',
   large: 'text-lg',
@@ -92,7 +99,9 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [webview, setWebview] = useState<{ url: string; title: string } | null>(null);
+  const [webview, setWebview] = useState<{ url: string; title: string; qid?: string } | null>(null);
+  const webviewRef = useRef<{ url: string; title: string; qid?: string } | null>(null);
+  webviewRef.current = webview;
 
   const scrollRef = useRef<HTMLElement | null>(null);
 
@@ -296,6 +305,42 @@ export default function App() {
     setPhase('list');
   };
 
+  // ── Cognitive task result (posted by the m2c2 iframe in embed mode) ──
+  // Reassigned each render so the listener always sees current closures.
+  const cogCompleteRef = useRef<(qid: string, payload: M2c2Complete) => void>(() => {});
+  cogCompleteRef.current = (qid, payload) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const q = engine.session.questions.find((x) => x.id === qid);
+    const s = payload.summary || {};
+    const bits: string[] = [];
+    if (s.n_trials != null) bits.push(`${s.n_trials} trials`);
+    if (s.duration_s != null) bits.push(`${s.duration_s}s`);
+    if (s.correct_count != null) bits.push(`${s.correct_count} correct`);
+    if (q) {
+      pushBot(q.title || 'Cognitive task', false, qid);
+      pushUser(`✓ Completed${bits.length ? ' — ' + bits.join(', ') : ''}`, qid);
+    }
+    const value = JSON.stringify(payload.data ?? payload.summary ?? {});
+    const next = engine.respond(qid, value);
+    setWebview(null);
+    afterAdvance(next);
+  };
+
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      const wv = webviewRef.current;
+      if (!wv) return;
+      let origin: string;
+      try { origin = new URL(wv.url, window.location.href).origin; } catch { return; }
+      if (e.origin !== origin) return;
+      const d = e.data as M2c2Complete | undefined;
+      if (d && d.type === 'm2c2:complete' && wv.qid) cogCompleteRef.current(wv.qid, d);
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
   // ── Derived state ────────────────────────────────────────────
   // The most recently answered question shows a "Change response" pill (t-1).
   const lastAnswerId = useMemo(() => {
@@ -436,7 +481,7 @@ export default function App() {
             reduceMotion={reduceMotion}
             onRespond={handleRespond}
             onContinueInfo={handleContinueInfo}
-            onOpenWebview={(url, title) => setWebview({ url, title })}
+            onOpenWebview={(url, title) => setWebview({ url, title, qid: currentQuestion?.id })}
           />
         )}
 

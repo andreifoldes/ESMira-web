@@ -74,6 +74,22 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
     other_specify: null,
   };
 
+  // Cognitive/link-out tasks are detected by an anchor in the item text,
+  // regardless of responseType. They need a value-holding type (e.g.
+  // text_input) on the ESMira side so the captured result gets a CSV column.
+  const cog = extractCognitive(input.text ?? '');
+  if (cog) {
+    const sep = cog.url.includes('?') ? '&' : '?';
+    return {
+      ...base,
+      type: 'cognitive',
+      title: cog.title,
+      description: cog.description,
+      launch_url: `${cog.url}${sep}embed=1`,
+      launch_label: `Start the ${cog.title}`,
+    };
+  }
+
   switch (rt) {
     case 'likert':
       return {
@@ -122,21 +138,9 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
         text: `${input.text ?? ''}${input.url ? `<br/><img src="${input.url}" alt="" style="max-width:100%;border-radius:12px"/>` : ''}`,
       };
     case 'text':
-    default: {
-      // Static text / cognitive link-out: display-only, captures nothing.
-      const cog = extractCognitive(input.text ?? '');
-      if (cog) {
-        return {
-          ...base,
-          type: 'info',
-          title: cog.title,
-          description: cog.description,
-          launch_url: cog.url,
-          launch_label: `Start the ${cog.title}`,
-        };
-      }
+    default:
+      // Static display text (no anchor): show as an info bubble, no value.
       return { ...base, type: 'info', is_html: true };
-    }
   }
 }
 
