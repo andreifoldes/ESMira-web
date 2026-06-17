@@ -156,7 +156,7 @@ function CognitiveCard({
           onClick={onContinue}
           className="w-full bg-surface-container-high text-on-surface font-semibold py-3 rounded-full transition-all active:scale-95 hover:bg-surface-container-highest"
         >
-          I've finished — continue
+          Skip
         </button>
       </div>
     </div>
