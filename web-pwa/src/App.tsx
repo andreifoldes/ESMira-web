@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Accessibility, ClipboardList, Info, MoreVertical, X,
-  Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle,
+  Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle, RotateCcw,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
@@ -32,6 +32,8 @@ interface ChatMsg {
   kind: 'text' | 'section';
   content: string;
   html?: boolean;
+  /** Question id this message belongs to (set on settled Q&A pairs). */
+  qid?: string;
 }
 
 const TEXT_SIZE_CLASS: Record<TextSize, string> = {
@@ -93,12 +95,20 @@ export default function App() {
 
   const scrollRef = useRef<HTMLElement | null>(null);
 
-  const pushBot = useCallback((content: string, html = false) =>
-    setMessages((prev) => [...prev, { id: mkId(), sender: 'bot', kind: 'text', content, html }]), []);
-  const pushUser = useCallback((content: string) =>
-    setMessages((prev) => [...prev, { id: mkId(), sender: 'user', kind: 'text', content }]), []);
-  const pushSection = useCallback((content: string) =>
-    setMessages((prev) => [...prev, { id: mkId(), sender: 'bot', kind: 'section', content }]), []);
+  // NB: compute the id OUTSIDE the updater so the updater stays pure (React
+  // StrictMode double-invokes updaters, which would otherwise dupe ids/keys).
+  const pushBot = useCallback((content: string, html = false, qid?: string) => {
+    const id = mkId();
+    setMessages((prev) => [...prev, { id, sender: 'bot', kind: 'text', content, html, qid }]);
+  }, []);
+  const pushUser = useCallback((content: string, qid?: string) => {
+    const id = mkId();
+    setMessages((prev) => [...prev, { id, sender: 'user', kind: 'text', content, qid }]);
+  }, []);
+  const pushSection = useCallback((content: string) => {
+    const id = mkId();
+    setMessages((prev) => [...prev, { id, sender: 'bot', kind: 'section', content }]);
+  }, []);
 
   // ── Retry queue flusher (re-installs cleanly on remount) ─────
   useEffect(() => installSubmitQueueFlusher(), []);
@@ -209,11 +219,23 @@ export default function App() {
     const q = engine.session.questions.find((x) => x.id === questionId);
     if (q) {
       // Settle the question into the thread as a bot bubble, then the answer.
-      pushBot(q.text);
-      pushUser(formatAnswer(q, value));
+      // Tag both with the question id so "Change response" can rewind/remove them.
+      pushBot(q.text, false, questionId);
+      pushUser(formatAnswer(q, value), questionId);
     }
     const next = engine.respond(questionId, value);
     afterAdvance(next);
+  };
+
+  // ── Change the most recent answer (rewind engine, re-ask it) ──
+  const onChangeResponse = (qid: string) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const rewound = engine.rewindTo(qid);
+    if (!rewound) return;
+    setMessages((prev) => prev.filter((m) => m.qid !== qid));
+    setCurrentQuestion(rewound);
+    setProgress(engine.getProgress());
   };
 
   const handleContinueInfo = () => {
@@ -273,7 +295,13 @@ export default function App() {
     setPhase('list');
   };
 
-  // ── Derived footer state ─────────────────────────────────────
+  // ── Derived state ────────────────────────────────────────────
+  // The most recently answered question shows a "Change response" pill (t-1).
+  const lastAnswerId = useMemo(() => {
+    let id: string | undefined;
+    for (const m of messages) if (m.sender === 'user' && m.qid) id = m.id;
+    return id;
+  }, [messages]);
   const footerActive = phase === 'name' || (phase === 'survey' && currentQuestion?.type === 'text');
   const footerPlaceholder = phase === 'name' ? 'Enter your name or ID' : 'Type your response…';
 
@@ -353,6 +381,14 @@ export default function App() {
                   {msg.sender === 'user' && <CheckCircle size={12} className="text-on-primary opacity-70" />}
                 </div>
               </div>
+              {phase === 'survey' && msg.qid && msg.id === lastAnswerId && (
+                <button
+                  onClick={() => onChangeResponse(msg.qid!)}
+                  className="mt-1 px-3 py-1.5 bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-surface-container-highest transition-colors active:scale-95"
+                >
+                  <RotateCcw size={12} /> Change response
+                </button>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>

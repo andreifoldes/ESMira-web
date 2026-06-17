@@ -221,6 +221,19 @@ export class OfflineSurveyEngine {
     return this.getCurrentQuestion();
   }
 
+  /**
+   * Rewind to re-ask a specific question by id (drops its stored response so it
+   * appears unanswered). Used by the "Change response" affordance.
+   */
+  rewindTo(questionId: string): PreloadedQuestion | null {
+    const idx = this.session.questions.findIndex(q => q.id === questionId);
+    if (idx < 0) return null;
+    delete this.state.responses[questionId];
+    this.state.currentIndex = idx;
+    this.state.complete = false;
+    return this.getCurrentQuestion();
+  }
+
   isComplete(): boolean {
     return this.state.complete;
   }
