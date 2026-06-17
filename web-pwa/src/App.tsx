@@ -207,7 +207,11 @@ export default function App() {
     const engine = engineRef.current;
     if (!engine) return;
     const q = engine.session.questions.find((x) => x.id === questionId);
-    if (q) pushUser(formatAnswer(q, value));
+    if (q) {
+      // Settle the question into the thread as a bot bubble, then the answer.
+      pushBot(q.text);
+      pushUser(formatAnswer(q, value));
+    }
     const next = engine.respond(questionId, value);
     afterAdvance(next);
   };
@@ -215,6 +219,8 @@ export default function App() {
   const handleContinueInfo = () => {
     const engine = engineRef.current;
     if (!engine) return;
+    // Settle the info/link-out content into the thread (keeps the link clickable).
+    if (currentQuestion) pushBot(currentQuestion.text, !!currentQuestion.is_html);
     const next = engine.skip();
     afterAdvance(next);
   };
