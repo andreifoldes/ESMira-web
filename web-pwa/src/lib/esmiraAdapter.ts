@@ -32,6 +32,25 @@ const RENDERABLE = new Set([
   'text', 'image',
 ]);
 
+/**
+ * Detect a cognitive/link-out `text` item (HTML with an anchor) and pull out the
+ * launch URL, title (first <b>), and description. Returns null for plain text.
+ */
+function extractCognitive(html: string): { url: string; title: string; description: string } | null {
+  const a = html.match(/<a\b[^>]*href="([^"]+)"[^>]*>.*?<\/a>/is);
+  if (!a) return null;
+  const url = a[1];
+  const titleM = html.match(/<b>(.*?)<\/b>/is);
+  const title = titleM ? titleM[1].replace(/<[^>]+>/g, '').trim() : 'Assessment';
+  const description = html
+    .replace(a[0], '')
+    .replace(/<b>.*?<\/b>/is, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+  return { url, title, description };
+}
+
 /** Fisher–Yates shuffle (per-session randomization of randomized pages). */
 function shuffle<T>(arr: T[]): T[] {
   const a = arr.slice();
@@ -103,9 +122,21 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
         text: `${input.text ?? ''}${input.url ? `<br/><img src="${input.url}" alt="" style="max-width:100%;border-radius:12px"/>` : ''}`,
       };
     case 'text':
-    default:
-      // Static text / cognitive link-out: display HTML, capture nothing.
+    default: {
+      // Static text / cognitive link-out: display-only, captures nothing.
+      const cog = extractCognitive(input.text ?? '');
+      if (cog) {
+        return {
+          ...base,
+          type: 'info',
+          title: cog.title,
+          description: cog.description,
+          launch_url: cog.url,
+          launch_label: `Start the ${cog.title}`,
+        };
+      }
       return { ...base, type: 'info', is_html: true };
+    }
   }
 }
 

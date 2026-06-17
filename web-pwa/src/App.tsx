@@ -92,6 +92,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [webview, setWebview] = useState<{ url: string; title: string } | null>(null);
 
   const scrollRef = useRef<HTMLElement | null>(null);
 
@@ -435,6 +436,7 @@ export default function App() {
             reduceMotion={reduceMotion}
             onRespond={handleRespond}
             onContinueInfo={handleContinueInfo}
+            onOpenWebview={(url, title) => setWebview({ url, title })}
           />
         )}
 
@@ -512,6 +514,36 @@ export default function App() {
                 <p>Powered by ESMira · web participant interface</p>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Full-screen webview overlay (cognitive tasks / external assessments) */}
+      <AnimatePresence>
+        {webview && (
+          <motion.div
+            initial={reduceMotion ? { opacity: 1 } : { y: '100%' }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
+            transition={reduceMotion ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 220 }}
+            className="fixed inset-0 z-[110] bg-surface flex flex-col"
+          >
+            <header className="bg-surface-container-high text-on-surface px-4 py-3 flex items-center justify-between border-b border-outline-variant/30 shadow-sm shrink-0">
+              <h2 className="font-bold text-base truncate pr-2">{webview.title}</h2>
+              <button
+                onClick={() => setWebview(null)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-surface-container-highest rounded-full text-sm font-semibold hover:brightness-95 active:scale-95 transition-all shrink-0"
+                aria-label="Close"
+              >
+                <X size={18} /> Close
+              </button>
+            </header>
+            <iframe
+              src={webview.url}
+              title={webview.title}
+              className="flex-1 w-full border-0"
+              allow="autoplay; fullscreen; accelerometer; gyroscope"
+            />
           </motion.div>
         )}
       </AnimatePresence>

@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ChevronRight, Check } from 'lucide-react';
+import { ChevronRight, Check, Play } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { PreloadedQuestion } from '../types';
 
@@ -30,6 +30,7 @@ interface Props {
   reduceMotion: boolean;
   onRespond: (id: string, value: string) => void;
   onContinueInfo: () => void;
+  onOpenWebview: (url: string, title: string) => void;
 }
 
 export function SurveyInputs({
@@ -39,6 +40,7 @@ export function SurveyInputs({
   reduceMotion,
   onRespond,
   onContinueInfo,
+  onOpenWebview,
 }: Props) {
   return (
     <div className="pb-4 pt-2 self-start max-w-[85%] w-[85%]">
@@ -63,6 +65,14 @@ export function SurveyInputs({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         className="self-start w-full"
       >
+        {question.type === 'info' && question.launch_url ? (
+          <CognitiveCard
+            question={question}
+            textSizeClass={textSizeClass}
+            onOpenWebview={onOpenWebview}
+            onContinue={onContinueInfo}
+          />
+        ) : (
         <div className="bg-white dark:bg-surface-container-lowest border-l-4 border-primary p-5 rounded-xl rounded-tl-none shadow-lg w-full">
           {question.type === 'info' ? (
             <div
@@ -98,12 +108,60 @@ export function SurveyInputs({
             </button>
           )}
         </div>
+        )}
       </motion.div>
     </div>
   );
 }
 
 // ── Sub-components ──────────────────────────────────────────────
+
+function CognitiveCard({
+  question,
+  textSizeClass,
+  onOpenWebview,
+  onContinue,
+}: {
+  question: PreloadedQuestion;
+  textSizeClass: string;
+  onOpenWebview: (url: string, title: string) => void;
+  onContinue: () => void;
+}) {
+  const title = question.title || 'Assessment';
+  const label = question.launch_label || `Start the ${title}`;
+  return (
+    <div className="bg-white dark:bg-surface-container-lowest border border-outline-variant/30 rounded-2xl rounded-tl-none overflow-hidden shadow-xl w-full">
+      {/* Hero header */}
+      <div className="min-h-14 bg-primary relative overflow-hidden">
+        <div className="bg-gradient-to-t from-primary/80 to-transparent flex items-center px-4 min-h-14 py-3">
+          <h3 className={cn('text-on-primary font-bold leading-snug', textSizeClass)}>{title}</h3>
+        </div>
+      </div>
+      {/* Body */}
+      <div className="p-4 flex flex-col gap-4">
+        {question.description && (
+          <p className="text-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{question.description}</p>
+        )}
+        {!question.required && (
+          <p className="text-xs text-on-surface-variant italic">(Optional)</p>
+        )}
+        <button
+          onClick={() => onOpenWebview(question.launch_url!, title)}
+          className="w-full bg-primary text-on-primary font-bold py-3 rounded-full flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95"
+        >
+          <Play size={18} />
+          {label}
+        </button>
+        <button
+          onClick={onContinue}
+          className="w-full bg-surface-container-high text-on-surface font-semibold py-3 rounded-full transition-all active:scale-95 hover:bg-surface-container-highest"
+        >
+          I've finished — continue
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function LikertInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
   const min = question.scale_min ?? 1;

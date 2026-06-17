@@ -39,6 +39,11 @@ export interface PreloadedQuestion {
   yes_value?: string;
   // info items render text as raw HTML (cognitive link-outs etc.)
   is_html?: boolean;
+  // cognitive/link-out tasks: launch this URL in an in-app iframe overlay
+  title?: string;
+  description?: string;
+  launch_url?: string;
+  launch_label?: string;
   // number input hint
   decimal?: boolean;
   show_if?: ShowIf | null;
