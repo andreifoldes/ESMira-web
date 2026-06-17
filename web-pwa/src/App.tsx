@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Accessibility, ClipboardList, Info, MoreVertical, X,
-  Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle, RotateCcw,
+  Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle, RotateCcw, LogOut,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
@@ -213,6 +213,16 @@ export default function App() {
     } else {
       setPhase('list');
     }
+  };
+
+  // ── Sign out: clear this study's saved identity/consent, restart ──
+  const signOut = () => {
+    if (!window.confirm("Sign out? You'll need to enter your name again to continue the study.")) return;
+    if (study) {
+      localStorage.removeItem(`esmira_participant_${study.id}`);
+      localStorage.removeItem(`esmira_consent_${study.id}`);
+    }
+    window.location.reload();
   };
 
   // ── Footer submit (name entry or text-question answer) ───────
@@ -447,6 +457,9 @@ export default function App() {
                   </button>
                   <button onClick={() => { setMenuOpen(false); setAboutOpen(true); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-surface-container-high">
                     <Info size={18} /><span className="font-medium">About</span>
+                  </button>
+                  <button onClick={() => { setMenuOpen(false); signOut(); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-slate-50 dark:hover:bg-surface-container-high">
+                    <LogOut size={18} /><span className="font-medium">Sign out</span>
                   </button>
                 </motion.div>
               </>
