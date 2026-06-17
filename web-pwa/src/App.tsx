@@ -24,7 +24,7 @@ import type { EsmiraStudy, PreloadedQuestion } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
 
 type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey';
-type TextSize = 'normal' | 'large' | 'xlarge';
+type TextSize = 'normal' | 'large' | 'xlarge' | 'xxlarge';
 
 interface ChatMsg {
   id: string;
@@ -47,6 +47,14 @@ const TEXT_SIZE_CLASS: Record<TextSize, string> = {
   normal: 'text-[15px]',
   large: 'text-lg',
   xlarge: 'text-xl',
+  xxlarge: 'text-2xl',
+};
+
+const TEXT_SIZE_LABEL: Record<TextSize, string> = {
+  normal: 'Normal',
+  large: 'Large',
+  xlarge: 'X-Large',
+  xxlarge: 'XX-Large',
 };
 
 function nowTime(): string {
@@ -517,22 +525,38 @@ export default function App() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <motion.div initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
-              className="w-full max-w-md bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30">
-                <h2 className="font-bold text-lg">Accessibility</h2>
+              className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
+                <h2 className="font-bold text-lg flex items-center gap-2"><Accessibility size={20} /> Accessibility Settings</h2>
                 <button onClick={() => setA11yOpen(false)} className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} /></button>
               </div>
-              <div className="p-5 flex flex-col gap-5">
+              <div className="p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
+                {/* Live preview — reflects theme, contrast and text size */}
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">Preview</div>
+                  <div className="rounded-xl p-4 flex flex-col gap-3 chat-wallpaper border border-outline-variant/30 overflow-hidden bg-surface-container-low">
+                    <div className="self-start max-w-[85%]">
+                      <div className="px-3 py-2 rounded-2xl message-shadow bg-white dark:bg-surface-container-lowest text-on-surface rounded-tl-none border border-slate-200 dark:border-outline-variant/30">
+                        <p className={cn('leading-relaxed font-medium', textSizeClass)}>How does this look?</p>
+                      </div>
+                    </div>
+                    <div className="self-end max-w-[85%]">
+                      <div className="px-3 py-2 rounded-2xl message-shadow bg-primary text-on-primary rounded-tr-none">
+                        <p className={cn('leading-relaxed font-medium', textSizeClass)}>Looks great!</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <Toggle icon={<Moon size={18} />} label="Dark mode" on={dark} onClick={() => setDark((v) => !v)} />
                 <Toggle icon={<Contrast size={18} />} label="High contrast" on={highContrast} onClick={() => setHighContrast((v) => !v)} />
                 <Toggle icon={<Sun size={18} />} label="Reduce motion" on={reduceMotion} onClick={() => setReduceMotion((v) => !v)} />
                 <div>
                   <div className="flex items-center gap-2 mb-2"><Type size={18} /><span className="font-semibold text-sm">Text size</span></div>
-                  <div className="flex gap-2">
-                    {(['normal', 'large', 'xlarge'] as TextSize[]).map((s) => (
+                  <div className="grid grid-cols-4 gap-2">
+                    {(['normal', 'large', 'xlarge', 'xxlarge'] as TextSize[]).map((s) => (
                       <button key={s} onClick={() => setTextSize(s)}
-                        className={cn('flex-1 py-2 rounded-full text-sm font-bold capitalize transition-colors',
-                          textSize === s ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface')}>{s}</button>
+                        className={cn('py-2 rounded-full text-xs font-bold transition-colors',
+                          textSize === s ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface')}>{TEXT_SIZE_LABEL[s]}</button>
                     ))}
                   </div>
                 </div>
