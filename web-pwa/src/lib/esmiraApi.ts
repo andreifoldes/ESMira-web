@@ -84,7 +84,15 @@ interface DatasetEntry {
   responses: Record<string, string | boolean | number>;
 }
 
-function buildPayload(args: SubmitArgs) {
+interface DatasetPayload {
+  userId: string;
+  appType: string;
+  appVersion: string;
+  serverVersion: number;
+  dataset: DatasetEntry[];
+}
+
+function buildPayload(args: SubmitArgs): DatasetPayload {
   const now = Date.now();
   const model = navigator.userAgent;
   const common = {
@@ -134,7 +142,7 @@ function buildPayload(args: SubmitArgs) {
 const QUEUE_KEY = 'esmira_submit_queue';
 
 interface QueuedSubmit {
-  payload: ReturnType<typeof buildPayload>;
+  payload: DatasetPayload;
   attempts: number;
 }
 
@@ -155,7 +163,7 @@ function saveQueue(q: QueuedSubmit[]): void {
   }
 }
 
-async function postDataset(payload: ReturnType<typeof buildPayload>): Promise<void> {
+async function postDataset(payload: DatasetPayload): Promise<void> {
   const resp = await fetch(`${API_ROOT}api/datasets.php`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -173,6 +181,58 @@ async function postDataset(payload: ReturnType<typeof buildPayload>): Promise<vo
  */
 export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
   const payload = buildPayload(args);
+  try {
+    await postDataset(payload);
+    return true;
+  } catch {
+    const queue = loadQueue();
+    queue.push({ payload, attempts: 1 });
+    saveQueue(queue);
+    return false;
+  }
+}
+
+export interface CognitiveTrialsArgs {
+  study: EsmiraStudy;
+  serverVersion: number;
+  accessKey: string;
+  participant: string;
+  trialsInternalId: number;
+  trialsName: string;
+  rows: Record<string, string | number>[];
+}
+
+/**
+ * Write one row per cognitive trial to the dedicated "Cognitive Trials"
+ * questionnaire (long/tabular format) via the existing datasets.php. Uses the
+ * same offline queue on failure.
+ */
+export async function submitCognitiveTrials(args: CognitiveTrialsArgs): Promise<boolean> {
+  if (!args.rows.length) return true;
+  const now = Date.now();
+  const model = navigator.userAgent;
+  const common = {
+    studyId: args.study.id,
+    studyVersion: args.study.version ?? 0,
+    studySubVersion: args.study.subVersion ?? 0,
+    studyLang: args.study.lang ?? 'en',
+    accessKey: args.accessKey,
+  };
+  const payload: DatasetPayload = {
+    userId: args.participant,
+    appType: 'Web',
+    appVersion: String(args.serverVersion),
+    serverVersion: args.serverVersion,
+    dataset: args.rows.map((r, i) => ({
+      ...common,
+      dataSetId: i,
+      questionnaireName: args.trialsName,
+      questionnaireInternalId: args.trialsInternalId,
+      eventType: 'questionnaire' as const,
+      responseTime: now + i,
+      responses: { ...r, model },
+    })),
+  };
   try {
     await postDataset(payload);
     return true;

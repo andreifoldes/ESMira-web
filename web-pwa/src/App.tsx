@@ -19,6 +19,7 @@ import { OfflineSurveyEngine } from './lib/surveyEngine';
 import { adaptQuestionnaire } from './lib/esmiraAdapter';
 import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
+  submitCognitiveTrials,
 } from './lib/esmiraApi';
 import type { EsmiraStudy, PreloadedQuestion } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
@@ -74,6 +75,27 @@ function formatAnswer(q: PreloadedQuestion, value: string): string {
 
 let msgSeq = 0;
 const mkId = () => `m${++msgSeq}`;
+
+// Hidden questionnaire used as the tabular sink for cognitive trial rows.
+const TRIALS_QN_TITLE = 'Cognitive Trials';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function pickNum(o: any, keys: string[]): number | '' {
+  for (const k of keys) {
+    const v = o?.[k];
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(+v)) return +v;
+  }
+  return '';
+}
+function pickStr(o: any, keys: string[]): string {
+  for (const k of keys) {
+    const v = o?.[k];
+    if (v !== undefined && v !== null) return typeof v === 'object' ? JSON.stringify(v) : String(v);
+  }
+  return '';
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export default function App() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -307,7 +329,8 @@ export default function App() {
       : '📥 You appear to be offline. Your responses are saved and will be sent automatically when you reconnect.');
     engineRef.current = null;
     activeQRef.current = null;
-    if (study.questionnaires.length > 1) {
+    const visibleCount = study.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE).length;
+    if (visibleCount > 1) {
       pushBot('Would you like to complete another questionnaire?');
     }
     setPhase('list');
@@ -321,6 +344,7 @@ export default function App() {
     if (!engine) return;
     const q = engine.session.questions.find((x) => x.id === qid);
     const s = payload.summary || {};
+    const session = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `s${Date.now()}`;
     const bits: string[] = [];
     if (s.n_trials != null) bits.push(`${s.n_trials} trials`);
     if (s.duration_s != null) bits.push(`${s.duration_s}s`);
@@ -329,10 +353,35 @@ export default function App() {
       pushBot(q.title || 'Cognitive task', false, qid);
       pushUser(`✓ Completed${bits.length ? ' — ' + bits.join(', ') : ''}`, qid);
     }
-    const value = JSON.stringify(payload.data ?? payload.summary ?? {});
-    const next = engine.respond(qid, value);
+    // Store a compact summary (incl. the session id, to join the trial rows) in
+    // the cognitive item's own column.
+    const next = engine.respond(qid, JSON.stringify({ session, ...s }));
     setWebview(null);
     afterAdvance(next);
+
+    // Write the tabular trial rows to the hidden "Cognitive Trials" questionnaire.
+    const data = payload.data as { trials?: unknown[] } | undefined;
+    const trials = Array.isArray(data?.trials) ? data!.trials : [];
+    const trialsQn = study?.questionnaires.find((x) => x.title === TRIALS_QN_TITLE);
+    const active = activeQRef.current;
+    if (study && trialsQn && active && trials.length) {
+      const rows = trials.map((t, i) => ({
+        cogAssessment: payload.assessment ?? '',
+        cogSource: active.name,
+        cogInputName: qid,
+        cogSession: session,
+        cogTrialIndex: i,
+        cogRt: pickNum(t, ['response_time_ms', 'rt', 'reaction_time_ms', 'elapsed_test_time_ms']),
+        cogCorrect: pickStr(t, ['is_correct', 'correct']),
+        cogResponse: pickStr(t, ['response', 'user_response', 'selected', 'tapped']),
+        cogStimulus: pickStr(t, ['stimulus', 'condition', 'trial_type']),
+        cogRaw: JSON.stringify(t),
+      }));
+      void submitCognitiveTrials({
+        study, serverVersion, accessKey, participant,
+        trialsInternalId: trialsQn.internalId, trialsName: trialsQn.title, rows,
+      });
+    }
   };
 
   useEffect(() => {
@@ -470,7 +519,7 @@ export default function App() {
         {/* Questionnaire list */}
         {phase === 'list' && study && (
           <div className="self-start w-[85%] flex flex-col gap-2">
-            {study.questionnaires.map((q) => (
+            {study.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE).map((q) => (
               <button key={q.internalId} onClick={() => startQuestionnaire(q.internalId)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 hover:bg-surface-container-high rounded-xl transition-colors text-left shadow-sm message-shadow">
                 <span className={cn('font-semibold', textSizeClass)}>{q.title}</span>
