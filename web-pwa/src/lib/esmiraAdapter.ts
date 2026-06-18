@@ -118,8 +118,9 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
     case 'number':
       return { ...base, type: 'number', decimal: input.numberHasDecimal ?? false };
     case 'time':
-    case 'duration':
       return { ...base, type: 'time' };
+    case 'duration':
+      return { ...base, type: 'duration' };
     case 'date':
       return { ...base, type: 'date' };
     case 'va_scale':

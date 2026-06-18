@@ -70,6 +70,15 @@ function formatAnswer(q: PreloadedQuestion, value: string): string {
     if (value === q.no_value) return q.no_label || 'No';
   }
   if (q.type === 'multi_choice') return value ? value.split(',').join(', ') : '(none)';
+  if (q.type === 'duration') {
+    // Stored value is total minutes (ESMira `duration` format); show it human-readably.
+    const total = Number(value);
+    if (Number.isFinite(total)) {
+      const h = Math.floor(total / 60);
+      const m = total % 60;
+      return h && m ? `${h} h ${m} min` : h ? `${h} h` : `${m} min`;
+    }
+  }
   return value;
 }
 

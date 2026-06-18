@@ -16,6 +16,7 @@ export type QType =
   | 'text'
   | 'number'
   | 'time'
+  | 'duration'
   | 'date'
   | 'va_scale'
   | 'cognitive'

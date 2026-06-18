@@ -94,6 +94,7 @@ export function SurveyInputs({
           {question.type === 'multi_choice' && question.options && <MultiChoice question={question} onRespond={onRespond} />}
           {question.type === 'number' && <NumberInput question={question} onRespond={onRespond} />}
           {question.type === 'time' && <TimeInput question={question} onRespond={onRespond} />}
+          {question.type === 'duration' && <DurationInput question={question} onRespond={onRespond} />}
           {question.type === 'date' && <DateInput question={question} onRespond={onRespond} />}
           {question.type === 'va_scale' && <VaScale question={question} onRespond={onRespond} />}
           {question.type === 'text' && (
@@ -317,6 +318,37 @@ function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRes
           <option value="" disabled>MM</option>
           {TIME_MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
+      </div>
+    </ConfirmRow>
+  );
+}
+
+// Duration picker (hours + minutes). Distinct from TimeInput: ESMira's
+// `duration` responseType stores the value as the TOTAL NUMBER OF MINUTES
+// (a positive integer), not an "HH:MM" clock string. So this emits
+// `hours * 60 + minutes` as the answer value.
+const DURATION_HOURS = Array.from({ length: 24 }, (_, i) => String(i));
+const DURATION_MINUTES = Array.from({ length: 60 }, (_, i) => String(i));
+
+function DurationInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
+  const [h, setH] = useState('');
+  const [m, setM] = useState('');
+  const selectCls =
+    'flex-1 min-w-0 bg-surface-container-low rounded-xl px-3 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50';
+  const total = Number(h || 0) * 60 + Number(m || 0);
+  return (
+    <ConfirmRow disabled={h === '' || m === '' || total < 1} onConfirm={() => onRespond(question.id, String(total))}>
+      <div className="flex flex-1 items-center gap-2">
+        <select value={h} onChange={(e) => setH(e.target.value)} className={selectCls} aria-label="Hours">
+          <option value="" disabled>Hours</option>
+          {DURATION_HOURS.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select>
+        <span className="text-sm font-medium text-on-surface-variant">h</span>
+        <select value={m} onChange={(e) => setM(e.target.value)} className={selectCls} aria-label="Minutes">
+          <option value="" disabled>Minutes</option>
+          {DURATION_MINUTES.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select>
+        <span className="text-sm font-medium text-on-surface-variant">min</span>
       </div>
     </ConfirmRow>
   );
