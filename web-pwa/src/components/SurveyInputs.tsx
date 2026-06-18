@@ -302,11 +302,11 @@ const TIME_MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, 
 
 function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
   const [hh, setHh] = useState('');
-  const [mm, setMm] = useState('00');
+  const [mm, setMm] = useState('');
   const selectCls =
     'flex-1 min-w-0 bg-surface-container-low rounded-xl px-3 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50';
   return (
-    <ConfirmRow disabled={hh === ''} onConfirm={() => onRespond(question.id, `${hh}:${mm}`)}>
+    <ConfirmRow disabled={hh === '' || mm === ''} onConfirm={() => onRespond(question.id, `${hh}:${mm}`)}>
       <div className="flex flex-1 items-center gap-2">
         <select value={hh} onChange={(e) => setHh(e.target.value)} className={selectCls} aria-label="Hour">
           <option value="" disabled>HH</option>
@@ -314,6 +314,7 @@ function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRes
         </select>
         <span className="font-bold text-on-surface-variant">:</span>
         <select value={mm} onChange={(e) => setMm(e.target.value)} className={selectCls} aria-label="Minute">
+          <option value="" disabled>MM</option>
           {TIME_MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
