@@ -291,16 +291,32 @@ function NumberInput({ question, onRespond }: { question: PreloadedQuestion; onR
   );
 }
 
+// Hour : minute picker built from native <select>s rather than
+// <input type="time">. The native time input renders and behaves
+// inconsistently across browsers (notably Firefox) and on mobile, so we use
+// two selects — the most universally supported control — which work
+// identically everywhere. Value is emitted as "HH:MM" (24h), matching
+// ESMira's QuestionnaireSaver time/duration format.
+const TIME_HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const TIME_MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
 function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
-  const [val, setVal] = useState('');
+  const [hh, setHh] = useState('');
+  const [mm, setMm] = useState('00');
+  const selectCls =
+    'flex-1 min-w-0 bg-surface-container-low rounded-xl px-3 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50';
   return (
-    <ConfirmRow disabled={!val} onConfirm={() => onRespond(question.id, val)}>
-      <input
-        type="time"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        className="flex-1 bg-surface-container-low rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50"
-      />
+    <ConfirmRow disabled={hh === ''} onConfirm={() => onRespond(question.id, `${hh}:${mm}`)}>
+      <div className="flex flex-1 items-center gap-2">
+        <select value={hh} onChange={(e) => setHh(e.target.value)} className={selectCls} aria-label="Hour">
+          <option value="" disabled>HH</option>
+          {TIME_HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+        </select>
+        <span className="font-bold text-on-surface-variant">:</span>
+        <select value={mm} onChange={(e) => setMm(e.target.value)} className={selectCls} aria-label="Minute">
+          {TIME_MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
     </ConfirmRow>
   );
 }
