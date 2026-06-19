@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Accessibility, ClipboardList, Info, MoreVertical, X,
+  Settings, ClipboardList, Info, MoreVertical, X,
   Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle, RotateCcw, LogOut,
 } from 'lucide-react';
 import { cn } from './lib/utils';
@@ -462,7 +462,7 @@ export default function App() {
                   className="absolute right-0 mt-2 w-48 bg-white dark:bg-surface-container-lowest rounded-xl shadow-lg py-2 z-50 border border-slate-100 dark:border-outline-variant/30 origin-top-right text-on-surface"
                 >
                   <button onClick={() => { setMenuOpen(false); setA11yOpen(true); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-surface-container-high">
-                    <Accessibility size={18} /><span className="font-medium">Accessibility</span>
+                    <Settings size={18} /><span className="font-medium">Settings</span>
                   </button>
                   <button onClick={() => { setMenuOpen(false); setAboutOpen(true); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-surface-container-high">
                     <Info size={18} /><span className="font-medium">About</span>
@@ -598,7 +598,7 @@ export default function App() {
             <motion.div initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
               className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
               <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
-                <h2 className="font-bold text-lg flex items-center gap-2"><Accessibility size={20} /> Accessibility Settings</h2>
+                <h2 className="font-bold text-lg flex items-center gap-2"><Settings size={20} /> Settings</h2>
                 <button onClick={() => setA11yOpen(false)} className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} /></button>
               </div>
               <div className="p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
