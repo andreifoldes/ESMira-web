@@ -150,7 +150,7 @@ function CognitiveCard({
           onClick={() => onOpenWebview(question.launch_url!, title)}
           className="w-full bg-primary text-on-primary font-bold py-3 rounded-full flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95"
         >
-          <Play size={18} />
+          <Play size={18} aria-hidden="true" />
           {label}
         </button>
         <button
@@ -168,27 +168,32 @@ function LikertInput({ question, onRespond }: { question: PreloadedQuestion; onR
   const min = question.scale_min ?? 1;
   const max = question.scale_max ?? 5;
   const values = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+  const groupLabel = `Rate from ${min}${question.scale_min_label ? ` (${question.scale_min_label})` : ''} `
+    + `to ${max}${question.scale_max_label ? ` (${question.scale_max_label})` : ''}`;
   return (
-    <>
-      {(question.scale_min_label || question.scale_max_label) && (
-        <p className="text-xs text-on-surface-variant mb-4">
-          ({question.scale_min_label && `${min} = ${question.scale_min_label}`}
-          {question.scale_min_label && question.scale_max_label && ', '}
-          {question.scale_max_label && `${max} = ${question.scale_max_label}`})
-        </p>
-      )}
-      <div className="flex justify-between items-center mt-2 px-1 gap-1">
-        {values.map((val) => (
-          <button
-            key={val}
-            onClick={() => onRespond(question.id, String(val))}
-            className="w-10 h-10 rounded-full bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all font-bold flex items-center justify-center active:scale-90"
-          >
-            {val}
-          </button>
-        ))}
-      </div>
-    </>
+    // Each scale point is a fixed-width column with its anchor label centered
+    // directly above the button. The row is centered with tight gaps so the end
+    // columns sit inside the card (labels never overflow the bubble).
+    <div role="group" aria-label={groupLabel} className="flex justify-center items-end gap-1 mt-3">
+      {values.map((val) => {
+        const label = val === min ? question.scale_min_label : val === max ? question.scale_max_label : '';
+        return (
+          <div key={val} className="flex flex-col items-center gap-1.5 w-12">
+            {label && (
+              <span className="text-[10px] leading-[1.15] text-center font-medium text-on-surface-variant break-words">
+                {label}
+              </span>
+            )}
+            <button
+              onClick={() => onRespond(question.id, String(val))}
+              className="w-10 h-10 shrink-0 rounded-full bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all font-bold flex items-center justify-center active:scale-90"
+            >
+              {val}
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -198,7 +203,7 @@ function YesNoInput({ question, onRespond }: { question: PreloadedQuestion; onRe
     { label: question.no_label || 'No', value: question.no_value ?? 'No', primary: false },
   ];
   return (
-    <div className="flex gap-3 mt-4">
+    <div role="group" aria-label="Yes or no" className="flex gap-3 mt-4">
       {opts.map((o) => (
         <button
           key={o.value}
@@ -218,7 +223,7 @@ function YesNoInput({ question, onRespond }: { question: PreloadedQuestion; onRe
 function ChoiceList({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
   return (
     <div className="relative mt-4">
-      <div className="flex flex-col gap-2 max-h-60 overflow-y-auto thick-scrollbar pr-2 pb-6">
+      <div role="group" aria-label="Answer options" className="flex flex-col gap-2 max-h-60 overflow-y-auto thick-scrollbar pr-2 pb-6">
         {question.options!.map((opt) => (
           <button
             key={opt}
@@ -229,7 +234,7 @@ function ChoiceList({ question, onRespond }: { question: PreloadedQuestion; onRe
               {OPTION_ICONS[opt] && <span className="mr-2">{OPTION_ICONS[opt]}</span>}
               {opt}
             </span>
-            <ChevronRight size={16} className="text-outline-variant group-hover:text-primary" />
+            <ChevronRight size={16} className="text-outline-variant group-hover:text-primary" aria-hidden="true" />
           </button>
         ))}
       </div>
@@ -248,20 +253,22 @@ function MultiChoice({ question, onRespond }: { question: PreloadedQuestion; onR
     });
   return (
     <div className="mt-4 flex flex-col gap-2">
-      <div className="flex flex-col gap-2 max-h-60 overflow-y-auto thick-scrollbar pr-2">
+      <div role="group" aria-label="Select all that apply" className="flex flex-col gap-2 max-h-60 overflow-y-auto thick-scrollbar pr-2">
         {question.options!.map((opt) => {
           const on = selected.has(opt);
           return (
             <button
               key={opt}
               onClick={() => toggle(opt)}
+              role="checkbox"
+              aria-checked={on}
               className={cn(
                 'w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors text-left shrink-0',
                 on ? 'bg-primary text-on-primary' : 'bg-surface-container-low hover:bg-surface-container-high',
               )}
             >
               <span className="font-medium text-sm">{opt}</span>
-              {on && <Check size={16} />}
+              {on && <Check size={16} aria-hidden="true" />}
             </button>
           );
         })}
@@ -285,6 +292,7 @@ function NumberInput({ question, onRespond }: { question: PreloadedQuestion; onR
         step={question.decimal ? '0.5' : '1'}
         value={val}
         onChange={(e) => setVal(e.target.value)}
+        aria-label={question.text || 'Enter a number'}
         className="flex-1 bg-surface-container-low rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50"
         placeholder="Enter a number"
       />
@@ -327,12 +335,18 @@ function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRes
 // `duration` responseType stores the value as the TOTAL NUMBER OF MINUTES
 // (a positive integer), not an "HH:MM" clock string. So this emits
 // `hours * 60 + minutes` as the answer value.
-const DURATION_HOURS = Array.from({ length: 24 }, (_, i) => String(i));
-const DURATION_MINUTES = Array.from({ length: 60 }, (_, i) => String(i));
+// Respects optional `max_hours` (default 24) and `minute_step` (default 1).
 
 function DurationInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
   const [h, setH] = useState('');
   const [m, setM] = useState('');
+  const maxHours = question.max_hours ?? 24;
+  const step = question.minute_step ?? 1;
+  const hours = Array.from({ length: maxHours + 1 }, (_, i) => String(i));
+  const minutes = Array.from(
+    { length: Math.floor(60 / step) },
+    (_, i) => String(i * step).padStart(step > 1 ? 2 : 1, '0'),
+  );
   const selectCls =
     'flex-1 min-w-0 bg-surface-container-low rounded-xl px-3 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50';
   const total = Number(h || 0) * 60 + Number(m || 0);
@@ -341,12 +355,12 @@ function DurationInput({ question, onRespond }: { question: PreloadedQuestion; o
       <div className="flex flex-1 items-center gap-2">
         <select value={h} onChange={(e) => setH(e.target.value)} className={selectCls} aria-label="Hours">
           <option value="" disabled>Hours</option>
-          {DURATION_HOURS.map((x) => <option key={x} value={x}>{x}</option>)}
+          {hours.map((x) => <option key={x} value={x}>{x}</option>)}
         </select>
         <span className="text-sm font-medium text-on-surface-variant">h</span>
         <select value={m} onChange={(e) => setM(e.target.value)} className={selectCls} aria-label="Minutes">
           <option value="" disabled>Minutes</option>
-          {DURATION_MINUTES.map((x) => <option key={x} value={x}>{x}</option>)}
+          {minutes.map((x) => <option key={x} value={x}>{x}</option>)}
         </select>
         <span className="text-sm font-medium text-on-surface-variant">min</span>
       </div>
@@ -362,6 +376,7 @@ function DateInput({ question, onRespond }: { question: PreloadedQuestion; onRes
         type="date"
         value={val}
         onChange={(e) => setVal(e.target.value)}
+        aria-label={question.text || 'Select a date'}
         className="flex-1 bg-surface-container-low rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50"
       />
     </ConfirmRow>
@@ -385,6 +400,10 @@ function VaScale({ question, onRespond }: { question: PreloadedQuestion; onRespo
         max={max}
         value={val}
         onChange={(e) => setVal(Number(e.target.value))}
+        aria-label={question.text || 'Visual analogue scale'}
+        aria-valuemin={0}
+        aria-valuemax={max}
+        aria-valuenow={val}
         className="w-full accent-primary"
       />
       <div className="text-center font-bold text-on-surface">{val}</div>
@@ -408,7 +427,7 @@ function ConfirmRow({ children, disabled, onConfirm }: { children: React.ReactNo
         className="bg-primary text-on-primary font-bold p-3 rounded-full transition-all active:scale-95 hover:brightness-110 disabled:opacity-40 disabled:active:scale-100"
         aria-label="Confirm"
       >
-        <Check size={18} />
+        <Check size={18} aria-hidden="true" />
       </button>
     </div>
   );

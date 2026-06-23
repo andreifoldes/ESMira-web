@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Settings, ClipboardList, Info, MoreVertical, X,
+  Settings, ClipboardList, Info, X, Grid, SkipForward,
   Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle, RotateCcw, LogOut,
 } from 'lucide-react';
 import { cn } from './lib/utils';
@@ -135,7 +135,7 @@ export default function App() {
   const [textSize, setTextSize] = useState<TextSize>('normal');
   const textSizeClass = TEXT_SIZE_CLASS[textSize];
 
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [gridMenuOpen, setGridMenuOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [webview, setWebview] = useState<{ url: string; title: string; qid?: string } | null>(null);
@@ -320,6 +320,15 @@ export default function App() {
     }
   };
 
+  const handleSkip = () => {
+    const engine = engineRef.current;
+    if (!engine || phase !== 'survey' || !currentQuestion) return;
+    // Settle the skipped question into the thread for continuity, then advance.
+    pushBot(currentQuestion.text, !!currentQuestion.is_html);
+    const next = engine.skip();
+    afterAdvance(next);
+  };
+
   // ── Finish & submit ──────────────────────────────────────────
   const finishSurvey = async () => {
     const engine = engineRef.current;
@@ -364,13 +373,11 @@ export default function App() {
     const q = engine.session.questions.find((x) => x.id === qid);
     const s = payload.summary || {};
     const session = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `s${Date.now()}`;
-    const bits: string[] = [];
-    if (s.n_trials != null) bits.push(`${s.n_trials} trials`);
-    if (s.duration_s != null) bits.push(`${s.duration_s}s`);
-    if (s.correct_count != null) bits.push(`${s.correct_count} correct`);
     if (q) {
       pushBot(q.title || 'Cognitive task', false, qid);
-      pushUser(`✓ Completed${bits.length ? ' — ' + bits.join(', ') : ''}`, qid);
+      // Participant sees only a neutral confirmation — no performance feedback.
+      // The full summary (trials, duration, correctness) is still stored below.
+      pushUser('✓ Completed', qid);
     }
     // Store a compact summary (incl. the session id, to join the trial rows) in
     // the cognitive item's own column.
@@ -434,10 +441,10 @@ export default function App() {
       dark && 'dark', highContrast && 'high-contrast',
     )}>
       {/* Header */}
-      <header className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
+      <header aria-label={study?.title ?? 'ESMira Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-            <ClipboardList size={20} />
+            <ClipboardList size={20} aria-hidden="true" />
           </div>
           <div className="flex flex-col min-w-0">
             <h1 className="text-base font-bold leading-none truncate">{study?.title ?? 'ESMira Study'}</h1>
@@ -446,39 +453,10 @@ export default function App() {
             </span>
           </div>
         </div>
-        <div className="relative shrink-0">
-          <button onClick={() => setMenuOpen((o) => !o)} className="p-2 hover:bg-white/10 rounded-full transition-colors" aria-label="More options">
-            <MoreVertical size={20} />
-          </button>
-          <AnimatePresence>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                <motion.div
-                  initial={reduceMotion ? { opacity: 1 } : { opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -10 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.15 }}
-                  className="absolute right-0 mt-2 w-48 bg-white dark:bg-surface-container-lowest rounded-xl shadow-lg py-2 z-50 border border-slate-100 dark:border-outline-variant/30 origin-top-right text-on-surface"
-                >
-                  <button onClick={() => { setMenuOpen(false); setA11yOpen(true); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-surface-container-high">
-                    <Settings size={18} /><span className="font-medium">Settings</span>
-                  </button>
-                  <button onClick={() => { setMenuOpen(false); setAboutOpen(true); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-surface-container-high">
-                    <Info size={18} /><span className="font-medium">About</span>
-                  </button>
-                  <button onClick={() => { setMenuOpen(false); signOut(); }} className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-slate-50 dark:hover:bg-surface-container-high">
-                    <LogOut size={18} /><span className="font-medium">Sign out</span>
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-        </div>
       </header>
 
       {/* Chat area */}
-      <main ref={scrollRef} className="flex-1 mt-16 mb-20 chat-wallpaper overflow-y-auto px-4 py-6 flex flex-col gap-4 no-scrollbar">
+      <main ref={scrollRef} role="log" aria-label="Survey conversation" aria-live="polite" className="flex-1 mt-16 mb-20 chat-wallpaper overflow-y-auto px-4 py-6 flex flex-col gap-4 no-scrollbar">
         <div className="flex justify-center my-2">
           <span className="bg-slate-700 dark:bg-surface-container-highest text-white dark:text-on-surface px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm">Today</span>
         </div>
@@ -503,7 +481,7 @@ export default function App() {
                   : <p className={cn('leading-relaxed font-medium whitespace-pre-wrap', textSizeClass)}>{msg.content}</p>}
                 <div className="flex justify-end items-center gap-1 mt-1">
                   <span className={cn('text-[10px] font-bold', msg.sender === 'user' ? 'text-on-primary opacity-70' : 'text-slate-500 dark:text-on-surface-variant')}>{nowTime()}</span>
-                  {msg.sender === 'user' && <CheckCircle size={12} className="text-on-primary opacity-70" />}
+                  {msg.sender === 'user' && <CheckCircle size={12} className="text-on-primary opacity-70" aria-hidden="true" />}
                 </div>
               </div>
               {phase === 'survey' && msg.qid && msg.id === lastAnswerId && (
@@ -511,7 +489,7 @@ export default function App() {
                   onClick={() => onChangeResponse(msg.qid!)}
                   className="mt-1 px-3 py-1.5 bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-surface-container-highest transition-colors active:scale-95"
                 >
-                  <RotateCcw size={12} /> Change response
+                  <RotateCcw size={12} aria-hidden="true" /> Change response
                 </button>
               )}
             </motion.div>
@@ -545,7 +523,7 @@ export default function App() {
               <button key={q.internalId} onClick={() => startQuestionnaire(q.internalId)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 hover:bg-surface-container-high rounded-xl transition-colors text-left shadow-sm message-shadow">
                 <span className={cn('font-semibold', textSizeClass)}>{q.title}</span>
-                <ChevronRight size={18} className="text-outline-variant" />
+                <ChevronRight size={18} className="text-outline-variant" aria-hidden="true" />
               </button>
             ))}
           </div>
@@ -568,14 +546,66 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 z-50 bg-white/85 dark:bg-surface-container-lowest/85 backdrop-blur-md rounded-t-2xl shadow-[0_-4px_12px_rgba(0,0,0,0.05)] px-4 py-3">
+      <footer aria-label="Message input" className="fixed bottom-0 left-0 right-0 z-50 bg-white/85 dark:bg-surface-container-lowest/85 backdrop-blur-md rounded-t-2xl shadow-[0_-4px_12px_rgba(0,0,0,0.05)] px-4 py-3">
         <div className="flex items-center gap-2">
+          {/* Quick-actions grid menu */}
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setGridMenuOpen((o) => !o)}
+              className="p-3 text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest rounded-full transition-colors"
+              aria-label="Quick actions"
+            >
+              <Grid size={20} aria-hidden="true" />
+            </button>
+            <AnimatePresence>
+              {gridMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40 cursor-pointer"
+                    role="presentation"
+                    onClick={() => setGridMenuOpen(false)}
+                    onTouchEnd={(e) => { e.preventDefault(); setGridMenuOpen(false); }}
+                  />
+                  <motion.div
+                    initial={reduceMotion ? { opacity: 1 } : { opacity: 0, scale: 0.95, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: 10 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.15 }}
+                    className={cn('absolute bottom-full left-0 mb-4 p-4 bg-white dark:bg-surface-container-lowest rounded-2xl shadow-xl z-50 border origin-bottom-left w-64', highContrast ? 'border-2 border-black' : 'border-slate-100 dark:border-outline-variant/30')}
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { key: 'settings', display: 'Settings', icon: Settings, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', onSelect: () => setA11yOpen(true) },
+                        { key: 'about', display: 'About', icon: Info, color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-500/10', onSelect: () => setAboutOpen(true) },
+                        ...(phase === 'survey' && currentQuestion
+                          ? [{ key: 'skip', display: 'Skip', icon: SkipForward, color: 'text-yellow-500', bg: 'bg-yellow-50 dark:bg-yellow-500/10', onSelect: handleSkip }]
+                          : []),
+                        { key: 'signout', display: 'Sign out', icon: LogOut, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-500/10', onSelect: signOut },
+                      ].map((a) => (
+                        <button
+                          key={a.key}
+                          onClick={() => { setGridMenuOpen(false); a.onSelect(); }}
+                          className={cn('flex flex-col items-center justify-center gap-2 p-3 rounded-xl transition-colors', highContrast ? 'border-2 border-black hover:bg-black hover:text-white' : 'hover:bg-surface-container-high dark:hover:bg-surface-container-highest')}
+                        >
+                          <div className={cn('p-3 rounded-full', highContrast ? 'bg-transparent' : a.bg)}>
+                            <a.icon size={24} className={highContrast ? 'text-current' : a.color} aria-hidden="true" />
+                          </div>
+                          <span className="text-xs font-semibold text-on-surface">{a.display}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
           <input
             type="text"
             value={footerValue}
             disabled={!footerActive}
             onChange={(e) => setFooterValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && onFooterSend()}
+            aria-label="Type a response"
             placeholder={footerActive ? footerPlaceholder : 'Tap an option above to continue'}
             className="flex-1 min-w-0 bg-surface-container-high rounded-full px-4 py-3 text-[15px] text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-60"
           />
@@ -585,7 +615,7 @@ export default function App() {
             className="bg-primary text-on-primary p-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-40 disabled:active:scale-100 shrink-0"
             aria-label="Send"
           >
-            <Send size={18} />
+            <Send size={18} aria-hidden="true" />
           </button>
         </div>
       </footer>
@@ -595,11 +625,11 @@ export default function App() {
         {a11yOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+            <motion.div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
               className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
               <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
-                <h2 className="font-bold text-lg flex items-center gap-2"><Settings size={20} /> Settings</h2>
-                <button onClick={() => setA11yOpen(false)} className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} /></button>
+                <h2 id="settings-dialog-title" className="font-bold text-lg flex items-center gap-2"><Settings size={20} aria-hidden="true" /> Settings</h2>
+                <button onClick={() => setA11yOpen(false)} aria-label="Close Settings" className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} aria-hidden="true" /></button>
               </div>
               <div className="p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
                 {/* Live preview — reflects theme, contrast and text size */}
@@ -618,14 +648,14 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                <Toggle icon={<Moon size={18} />} label="Dark mode" on={dark} onClick={() => setDark((v) => !v)} />
-                <Toggle icon={<Contrast size={18} />} label="High contrast" on={highContrast} onClick={() => setHighContrast((v) => !v)} />
-                <Toggle icon={<Sun size={18} />} label="Reduce motion" on={reduceMotion} onClick={() => setReduceMotion((v) => !v)} />
+                <Toggle icon={<Moon size={18} aria-hidden="true" />} label="Dark mode" on={dark} onClick={() => setDark((v) => !v)} />
+                <Toggle icon={<Contrast size={18} aria-hidden="true" />} label="High contrast" on={highContrast} onClick={() => setHighContrast((v) => !v)} />
+                <Toggle icon={<Sun size={18} aria-hidden="true" />} label="Reduce motion" on={reduceMotion} onClick={() => setReduceMotion((v) => !v)} />
                 <div>
-                  <div className="flex items-center gap-2 mb-2"><Type size={18} /><span className="font-semibold text-sm">Text size</span></div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="flex items-center gap-2 mb-2"><Type size={18} aria-hidden="true" /><span className="font-semibold text-sm">Text size</span></div>
+                  <div role="group" aria-label="Text size" className="grid grid-cols-4 gap-2">
                     {(['normal', 'large', 'xlarge', 'xxlarge'] as TextSize[]).map((s) => (
-                      <button key={s} onClick={() => setTextSize(s)}
+                      <button key={s} onClick={() => setTextSize(s)} aria-pressed={textSize === s}
                         className={cn('py-2 rounded-full text-xs font-bold transition-colors',
                           textSize === s ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface')}>{TEXT_SIZE_LABEL[s]}</button>
                     ))}
@@ -642,11 +672,11 @@ export default function App() {
         {aboutOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+            <motion.div role="dialog" aria-modal="true" aria-labelledby="about-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
               className="w-full max-w-md bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
               <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30">
-                <h2 className="font-bold text-lg">About</h2>
-                <button onClick={() => setAboutOpen(false)} className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} /></button>
+                <h2 id="about-dialog-title" className="font-bold text-lg">About</h2>
+                <button onClick={() => setAboutOpen(false)} aria-label="Close About" className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} aria-hidden="true" /></button>
               </div>
               <div className="p-5 flex flex-col gap-2 text-sm text-on-surface-variant">
                 <p><span className="font-semibold text-on-surface">{study?.title}</span></p>
@@ -675,7 +705,7 @@ export default function App() {
                 className="flex items-center gap-1.5 px-3 py-2 bg-surface-container-highest rounded-full text-sm font-semibold hover:brightness-95 active:scale-95 transition-all shrink-0"
                 aria-label="Close"
               >
-                <X size={18} /> Close
+                <X size={18} aria-hidden="true" /> Close
               </button>
             </header>
             <iframe
@@ -693,7 +723,7 @@ export default function App() {
 
 function Toggle({ icon, label, on, onClick }: { icon: React.ReactNode; label: string; on: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex items-center justify-between w-full">
+    <button onClick={onClick} role="switch" aria-checked={on} aria-label={label} className="flex items-center justify-between w-full">
       <span className="flex items-center gap-2 font-semibold text-sm">{icon}{label}</span>
       <span className={cn('w-11 h-6 rounded-full transition-colors relative', on ? 'bg-primary' : 'bg-surface-container-highest')}>
         <span className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all', on ? 'left-[22px]' : 'left-0.5')} />

@@ -117,10 +117,20 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       return { ...base, type: 'text' };
     case 'number':
       return { ...base, type: 'number', decimal: input.numberHasDecimal ?? false };
-    case 'time':
+    case 'time': {
+      // Some studies (including iEMAbot-ported ones) define duration questions
+      // with responseType='time' because ESMira's original native client uses
+      // the same picker for both. Detect "how long…" phrasing and render as
+      // a duration picker instead of a 24h clock picker.
+      const plainText = (input.text ?? '').replace(/<[^>]+>/g, '').toLowerCase();
+      const isDuration = /\bhow long\b/.test(plainText);
+      if (isDuration) {
+        return { ...base, type: 'duration', max_hours: 16, minute_step: 5 };
+      }
       return { ...base, type: 'time' };
+    }
     case 'duration':
-      return { ...base, type: 'duration' };
+      return { ...base, type: 'duration', max_hours: 24, minute_step: 1 };
     case 'date':
       return { ...base, type: 'date' };
     case 'va_scale':

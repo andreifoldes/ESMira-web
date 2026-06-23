@@ -48,6 +48,9 @@ export interface PreloadedQuestion {
   launch_label?: string;
   // number input hint
   decimal?: boolean;
+  // duration input constraints
+  max_hours?: number;   // upper bound for the hours wheel (default 24)
+  minute_step?: number; // step between minute options (default 1)
   show_if?: ShowIf | null;
   other_specify?: { options: string[]; prompt: string } | null;
 }
