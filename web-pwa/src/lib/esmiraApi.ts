@@ -14,6 +14,15 @@ import type { EsmiraStudy, PreloadedQuestion, StudiesEnvelope } from '../types';
 /** API root derived from the served base path ('/esmira/pwa/' -> '/esmira/'). */
 const API_ROOT = (import.meta.env.BASE_URL || '/').replace(/pwa\/?$/, '');
 
+/** Full URL of the ESMira server root the PWA talks to (for display in About). */
+export function serverRootUrl(): string {
+  try {
+    return new URL(API_ROOT, window.location.href).href;
+  } catch {
+    return window.location.origin;
+  }
+}
+
 export interface FetchedStudy {
   study: EsmiraStudy;
   serverVersion: number;
@@ -63,7 +72,8 @@ export interface SubmitArgs {
   accessKey: string;
   questionnaireInternalId: number;
   questionnaireName: string;
-  participant: string;
+  /** Stable backend-facing identifier (distinct from the display name). */
+  userId: string;
   responses: Record<string, string | boolean | number>;
   newParticipant: boolean;
   formDuration: number;
@@ -129,7 +139,7 @@ function buildPayload(args: SubmitArgs): DatasetPayload {
     },
   });
   return {
-    userId: args.participant,
+    userId: args.userId,
     appType: 'Web',
     appVersion: String(args.serverVersion),
     serverVersion: args.serverVersion,
@@ -196,7 +206,8 @@ export interface CognitiveTrialsArgs {
   study: EsmiraStudy;
   serverVersion: number;
   accessKey: string;
-  participant: string;
+  /** Stable backend-facing identifier (distinct from the display name). */
+  userId: string;
   trialsInternalId: number;
   trialsName: string;
   rows: Record<string, string | number>[];
@@ -219,7 +230,7 @@ export async function submitCognitiveTrials(args: CognitiveTrialsArgs): Promise<
     accessKey: args.accessKey,
   };
   const payload: DatasetPayload = {
-    userId: args.participant,
+    userId: args.userId,
     appType: 'Web',
     appVersion: String(args.serverVersion),
     serverVersion: args.serverVersion,

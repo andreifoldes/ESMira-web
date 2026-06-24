@@ -12,14 +12,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Settings, ClipboardList, Info, X, Grid, SkipForward,
-  Sun, Moon, Contrast, Type, Send, ChevronRight, CheckCircle, RotateCcw, LogOut,
+  Sun, Moon, Contrast, Type, Send, ChevronRight, ChevronLeft, CheckCircle, RotateCcw, LogOut,
+  FileText, ShieldCheck, Bell,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
 import { adaptQuestionnaire } from './lib/esmiraAdapter';
 import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
-  submitCognitiveTrials,
+  submitCognitiveTrials, serverRootUrl,
 } from './lib/esmiraApi';
 import type { EsmiraStudy, PreloadedQuestion } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
@@ -85,6 +86,39 @@ function formatAnswer(q: PreloadedQuestion, value: string): string {
 let msgSeq = 0;
 const mkId = () => `m${++msgSeq}`;
 
+/**
+ * Resolve a stable per-study user id — the identifier sent to the backend,
+ * kept distinct from the participant's display name. Priority:
+ *   1. a `uid` (alias `user_id` / `userId`) URL param — for personalised invite links
+ *   2. an id already stored for this study (constant across visits)
+ *   3. a freshly generated random id
+ * The resolved id is persisted immediately so it survives reloads.
+ */
+function resolveUserId(studyId: number, params: URLSearchParams): string {
+  const storeKey = `esmira_userid_${studyId}`;
+  const fromUrl = (params.get('uid') ?? params.get('user_id') ?? params.get('userId') ?? '').trim();
+  if (fromUrl) {
+    localStorage.setItem(storeKey, fromUrl);
+    return fromUrl;
+  }
+  const stored = localStorage.getItem(storeKey);
+  if (stored) return stored;
+  const generated = generateUserId();
+  localStorage.setItem(storeKey, generated);
+  return generated;
+}
+
+/** A URL/filesystem-safe random user id (the backend maps userId onto a path). */
+function generateUserId(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  if (c?.getRandomValues) {
+    const b = c.getRandomValues(new Uint8Array(16));
+    return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  }
+  return `u${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
+}
+
 // Hidden questionnaire used as the tabular sink for cognitive trial rows.
 const TRIALS_QN_TITLE = 'Cognitive Trials';
 
@@ -116,7 +150,8 @@ export default function App() {
   const [serverVersion, setServerVersion] = useState(11);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [participant, setParticipant] = useState('');
+  const [participant, setParticipant] = useState(''); // display name (username)
+  const [userId, setUserId] = useState('');           // stable backend identifier
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [footerValue, setFooterValue] = useState('');
 
@@ -138,6 +173,7 @@ export default function App() {
   const [gridMenuOpen, setGridMenuOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutView, setAboutView] = useState<'main' | 'description' | 'consent'>('main');
   const [webview, setWebview] = useState<{ url: string; title: string; qid?: string } | null>(null);
   const webviewRef = useRef<{ url: string; title: string; qid?: string } | null>(null);
   webviewRef.current = webview;
@@ -175,6 +211,8 @@ export default function App() {
       .then(({ study, serverVersion }) => {
         setStudy(study);
         setServerVersion(serverVersion);
+        // Assign/restore the stable user id (invite-link param > stored > random).
+        setUserId(resolveUserId(study.id, params));
         const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
         setParticipant(savedName);
         pushBot(`Welcome to ${study.title}.`);
@@ -184,7 +222,7 @@ export default function App() {
           pushBot(study.informedConsentForm);
           setPhase('consent');
         } else if (!savedName) {
-          pushBot('Before we begin — what name or ID would you like to use? (Your researcher may have given you one.)');
+          pushBot('Before we begin — what name would you like to go by? (Just for display; your study id is assigned automatically.)');
           setPhase('name');
         } else {
           pushBot(`Welcome back, ${savedName}!`);
@@ -217,7 +255,7 @@ export default function App() {
     localStorage.setItem(`esmira_consent_${study.id}`, '1');
     const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
     if (!savedName) {
-      pushBot('Thank you. What name or ID would you like to use?');
+      pushBot('Thank you. What name would you like to go by?');
       setPhase('name');
     } else {
       setPhase('list');
@@ -230,6 +268,9 @@ export default function App() {
     if (study) {
       localStorage.removeItem(`esmira_participant_${study.id}`);
       localStorage.removeItem(`esmira_consent_${study.id}`);
+      // Drop the assigned id too — a fresh visitor gets a new one (an invite-link
+      // `uid` re-resolves to the same id on reload, which is the intended behaviour).
+      localStorage.removeItem(`esmira_userid_${study.id}`);
     }
     window.location.reload();
   };
@@ -336,21 +377,26 @@ export default function App() {
     if (!engine || !study || !active) return;
     setSubmitting(true);
     const responses = buildEsmiraResponses(engine.session.questions, engine.getResponseMap());
-    const joinedKey = `esmira_joined_${study.id}_${participant}`;
+    const joinedKey = `esmira_joined_${study.id}_${userId}`;
     const newParticipant = !localStorage.getItem(joinedKey);
+    const submittedAt = Date.now();
     const ok = await submitQuestionnaire({
       study,
       serverVersion,
       accessKey,
       questionnaireInternalId: active.id,
       questionnaireName: active.name,
-      participant,
+      userId,
       responses,
       newParticipant,
       formDuration: Date.now() - surveyStartRef.current,
       pageDurations: '',
     });
-    localStorage.setItem(joinedKey, '1');
+    // Record the join time (epoch ms) on first submission; bump the count of
+    // completed questionnaires. Both surface in the About / Study information panel.
+    if (newParticipant) localStorage.setItem(joinedKey, String(submittedAt));
+    const completedKey = `esmira_completed_${study.id}_${userId}`;
+    localStorage.setItem(completedKey, String(Number(localStorage.getItem(completedKey) || '0') + 1));
     setSubmitting(false);
     pushBot(ok
       ? '✅ Thank you — your responses have been recorded.'
@@ -404,7 +450,7 @@ export default function App() {
         cogRaw: JSON.stringify(t),
       }));
       void submitCognitiveTrials({
-        study, serverVersion, accessKey, participant,
+        study, serverVersion, accessKey, userId,
         trialsInternalId: trialsQn.internalId, trialsName: trialsQn.title, rows,
       });
     }
@@ -432,7 +478,7 @@ export default function App() {
     return id;
   }, [messages]);
   const footerActive = phase === 'name' || (phase === 'survey' && currentQuestion?.type === 'text');
-  const footerPlaceholder = phase === 'name' ? 'Enter your name or ID' : 'Type your response…';
+  const footerPlaceholder = phase === 'name' ? 'Enter your name' : 'Type your response…';
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -576,7 +622,7 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-3">
                       {[
                         { key: 'settings', display: 'Settings', icon: Settings, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', onSelect: () => setA11yOpen(true) },
-                        { key: 'about', display: 'About', icon: Info, color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-500/10', onSelect: () => setAboutOpen(true) },
+                        { key: 'about', display: 'Details', icon: Info, color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-500/10', onSelect: () => { setAboutView('main'); setAboutOpen(true); } },
                         ...(phase === 'survey' && currentQuestion
                           ? [{ key: 'skip', display: 'Skip', icon: SkipForward, color: 'text-yellow-500', bg: 'bg-yellow-50 dark:bg-yellow-500/10', onSelect: handleSkip }]
                           : []),
@@ -667,25 +713,70 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* About modal */}
+      {/* About / Study information modal */}
       <AnimatePresence>
-        {aboutOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div role="dialog" aria-modal="true" aria-labelledby="about-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
-              className="w-full max-w-md bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30">
-                <h2 id="about-dialog-title" className="font-bold text-lg">About</h2>
-                <button onClick={() => setAboutOpen(false)} aria-label="Close About" className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} aria-hidden="true" /></button>
-              </div>
-              <div className="p-5 flex flex-col gap-2 text-sm text-on-surface-variant">
-                <p><span className="font-semibold text-on-surface">{study?.title}</span></p>
-                {participant && <p>Participant: <span className="font-mono">{participant}</span></p>}
-                <p>Powered by ESMira · web participant interface</p>
-              </div>
+        {aboutOpen && (() => {
+          // Read the participant's per-study record fresh each time the panel opens.
+          const joinedRaw = study ? localStorage.getItem(`esmira_joined_${study.id}_${userId}`) : null;
+          let joinedAt: Date | null = null;
+          if (joinedRaw && joinedRaw !== '1') {
+            const t = Number(joinedRaw);
+            const d = Number.isFinite(t) && t > 0 ? new Date(t) : new Date(joinedRaw);
+            if (!Number.isNaN(d.getTime())) joinedAt = d;
+          }
+          const completedCount = study ? Number(localStorage.getItem(`esmira_completed_${study.id}_${userId}`) || '0') : 0;
+          const detailTitle = aboutView === 'description' ? 'Study description' : 'Informed consent';
+          const detailHtml = aboutView === 'description' ? study?.studyDescription : study?.informedConsentForm;
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <motion.div role="dialog" aria-modal="true" aria-labelledby="about-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+                className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
+                <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-outline-variant/30 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {aboutView !== 'main' && (
+                      <button onClick={() => setAboutView('main')} aria-label="Back" className="p-1 -ml-1 hover:bg-surface-container-high rounded-full shrink-0"><ChevronLeft size={20} aria-hidden="true" /></button>
+                    )}
+                    <h2 id="about-dialog-title" className="font-bold text-lg truncate">{aboutView === 'main' ? 'Details' : detailTitle}</h2>
+                  </div>
+                  <button onClick={() => setAboutOpen(false)} aria-label="Close" className="p-1 hover:bg-surface-container-high rounded-full shrink-0"><X size={20} aria-hidden="true" /></button>
+                </div>
+
+                {aboutView === 'main' ? (
+                  <div className="overflow-y-auto custom-scrollbar">
+                    {/* Study identity */}
+                    <div className="px-5 pt-4 pb-2">
+                      <p className="font-semibold text-on-surface leading-snug">{study?.title}</p>
+                    </div>
+                    {/* Study information rows */}
+                    <div className="px-5 pb-2">
+                      <InfoRow label="Username" value={participant || '—'} />
+                      <InfoRow label="User id" value={userId || '—'} mono />
+                      <InfoRow label="Server url" value={serverRootUrl()} mono />
+                      <InfoRow label="Joined at" value={joinedAt ? joinedAt.toLocaleString() : 'Not yet joined'} />
+                      <InfoRow label="Completed questionnaires" value={completedCount} />
+                      <InfoRow label="Next notification" value={<span className="inline-flex items-center gap-1 text-on-surface-variant"><Bell size={13} aria-hidden="true" /> Not scheduled</span>} />
+                    </div>
+                    {/* Detail navigation */}
+                    <div className="px-3 pb-4 pt-1 flex flex-col">
+                      <AboutLinkButton icon={FileText} label="Study description" onClick={() => setAboutView('description')} />
+                      <AboutLinkButton icon={ShieldCheck} label="Informed consent" onClick={() => setAboutView('consent')} />
+                    </div>
+                    <div className="px-5 pb-4 pt-1 text-center text-xs text-on-surface-variant border-t border-outline-variant/20">
+                      Powered by ESMira · web participant interface
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-5 overflow-y-auto custom-scrollbar">
+                    {detailHtml
+                      ? <div className={cn('leading-relaxed esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: detailHtml }} />
+                      : <p className="text-sm text-on-surface-variant">Not provided for this study.</p>}
+                  </div>
+                )}
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* Full-screen webview overlay (cognitive tasks / external assessments) */}
@@ -718,6 +809,28 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/** A label / value row in the About · Study information panel. */
+function InfoRow({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-outline-variant/20 last:border-0">
+      <span className="text-sm text-on-surface-variant shrink-0">{label}</span>
+      <span className={cn('text-sm font-medium text-on-surface text-right break-all', mono && 'font-mono')}>{value}</span>
+    </div>
+  );
+}
+
+/** A tappable row that opens a sub-page (Study description / Informed consent). */
+function AboutLinkButton({ icon: Icon, label, onClick }: { icon: typeof FileText; label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick}
+      className="w-full flex items-center gap-3 px-2 py-3 rounded-xl hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors text-left">
+      <span className="p-2 rounded-full bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant shrink-0"><Icon size={18} aria-hidden="true" /></span>
+      <span className="flex-1 font-semibold text-sm text-on-surface">{label}</span>
+      <ChevronRight size={18} className="text-outline-variant shrink-0" aria-hidden="true" />
+    </button>
   );
 }
 
