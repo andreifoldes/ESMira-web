@@ -23,6 +23,19 @@ const OPTION_ICONS: Record<string, string> = {
   "Someone else's home": '🏡', 'Gym/Sports facility': '🏋️', 'Other': '📍',
 };
 
+// Scale-anchor labels (likert / va_scale min–max) follow the app's text-size
+// accessibility setting, but stay a step smaller than the body text so they
+// don't dominate the buttons. Keyed by App's TEXT_SIZE_CLASS values
+// (normal / large / xlarge / xxlarge); falls back to the smallest if unknown.
+const ANCHOR_LABEL_SIZE: Record<string, string> = {
+  'text-[15px]': 'text-[11px]',
+  'text-lg': 'text-[13px]',
+  'text-xl': 'text-[15px]',
+  'text-2xl': 'text-[17px]',
+};
+const anchorLabelClass = (textSizeClass: string): string =>
+  ANCHOR_LABEL_SIZE[textSizeClass] ?? 'text-[11px]';
+
 interface Props {
   question: PreloadedQuestion;
   progress: number;
@@ -88,7 +101,7 @@ export function SurveyInputs({
             <p className="text-xs text-on-surface-variant italic mb-2">(Optional)</p>
           )}
 
-          {question.type === 'likert' && <LikertInput question={question} onRespond={onRespond} />}
+          {question.type === 'likert' && <LikertInput question={question} onRespond={onRespond} labelSizeClass={anchorLabelClass(textSizeClass)} />}
           {question.type === 'yesno' && <YesNoInput question={question} onRespond={onRespond} />}
           {question.type === 'choice' && question.options && <ChoiceList question={question} onRespond={onRespond} />}
           {question.type === 'multi_choice' && question.options && <MultiChoice question={question} onRespond={onRespond} />}
@@ -96,7 +109,7 @@ export function SurveyInputs({
           {question.type === 'time' && <TimeInput question={question} onRespond={onRespond} />}
           {question.type === 'duration' && <DurationInput question={question} onRespond={onRespond} />}
           {question.type === 'date' && <DateInput question={question} onRespond={onRespond} />}
-          {question.type === 'va_scale' && <VaScale question={question} onRespond={onRespond} />}
+          {question.type === 'va_scale' && <VaScale question={question} onRespond={onRespond} labelSizeClass={anchorLabelClass(textSizeClass)} />}
           {question.type === 'text' && (
             <p className="text-sm text-on-surface-variant mt-2">Type your response below.</p>
           )}
@@ -164,23 +177,23 @@ function CognitiveCard({
   );
 }
 
-function LikertInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
+function LikertInput({ question, onRespond, labelSizeClass }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void; labelSizeClass: string }) {
   const min = question.scale_min ?? 1;
   const max = question.scale_max ?? 5;
   const values = Array.from({ length: max - min + 1 }, (_, i) => min + i);
   const groupLabel = `Rate from ${min}${question.scale_min_label ? ` (${question.scale_min_label})` : ''} `
     + `to ${max}${question.scale_max_label ? ` (${question.scale_max_label})` : ''}`;
   return (
-    // Each scale point is a fixed-width column with its anchor label centered
-    // directly above the button. The row is centered with tight gaps so the end
-    // columns sit inside the card (labels never overflow the bubble).
-    <div role="group" aria-label={groupLabel} className="flex justify-center items-end gap-1 mt-3">
+    // Each scale point is an equal-width column (flex-1) so the buttons spread
+    // evenly across the card; the anchor label sits centered directly above its
+    // end button. min-w-0 + break-words keeps long labels inside their column.
+    <div role="group" aria-label={groupLabel} className="flex items-end gap-1 mt-3 px-1">
       {values.map((val) => {
         const label = val === min ? question.scale_min_label : val === max ? question.scale_max_label : '';
         return (
-          <div key={val} className="flex flex-col items-center gap-1.5 w-12">
+          <div key={val} className="flex-1 min-w-0 flex flex-col items-center gap-1.5">
             {label && (
-              <span className="text-[10px] leading-[1.15] text-center font-medium text-on-surface-variant break-words">
+              <span className={cn('leading-[1.15] text-center font-medium text-on-surface-variant break-words', labelSizeClass)}>
                 {label}
               </span>
             )}
@@ -383,13 +396,13 @@ function DateInput({ question, onRespond }: { question: PreloadedQuestion; onRes
   );
 }
 
-function VaScale({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
+function VaScale({ question, onRespond, labelSizeClass }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void; labelSizeClass: string }) {
   const max = question.max_value ?? 100;
   const [val, setVal] = useState(Math.round(max / 2));
   return (
     <div className="mt-4 flex flex-col gap-3">
       {(question.scale_min_label || question.scale_max_label) && (
-        <div className="flex justify-between text-xs text-on-surface-variant">
+        <div className={cn('flex justify-between text-on-surface-variant', labelSizeClass)}>
           <span>{question.scale_min_label}</span>
           <span>{question.scale_max_label}</span>
         </div>
