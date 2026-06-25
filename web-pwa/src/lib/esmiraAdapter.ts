@@ -85,7 +85,11 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       type: 'cognitive',
       title: cog.title,
       description: cog.description,
-      launch_url: `${cog.url}${sep}embed=1`,
+      // `v` busts any wrapper HTML the browser cached before embed-mode + the
+      // no-cache headers shipped (heuristic freshness keeps old entries "fresh"
+      // for days otherwise). Paired with `index.js?v=…` inside the wrapper HTML.
+      // Bump both if the wrappers change again.
+      launch_url: `${cog.url}${sep}embed=1&v=2`,
       launch_label: `Start the ${cog.title}`,
     };
   }
