@@ -137,6 +137,16 @@ export class Content extends SectionContent {
 							</label>
 						</div>
 				}),
+				DashElement("vertical", {
+					content:
+						<div class="vAlignCenter">
+							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(study.enableTutorialMode)} />
+								<span>{Lang.get('enable_tutorial_mode')}</span>
+								<small>{Lang.get('enable_tutorial_mode_info')}</small>
+							</label>
+						</div>
+				}),
 				this.hasFallbackUrls && DashElement(null, {
 					content:
 						<div>

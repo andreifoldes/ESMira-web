@@ -137,6 +137,9 @@ export interface EsmiraStudy {
   informedConsentForm?: string;
   postInstallInstructions?: string;
   accessKeys?: string[];
+  /** When true (set by the researcher in the designer), first-time web participants
+   *  see a tutorial overview with optional no-submit practice runs before starting. */
+  enableTutorialMode?: boolean;
   questionnaires: EsmiraQuestionnaire[];
 }
 

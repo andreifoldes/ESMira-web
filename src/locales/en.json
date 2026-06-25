@@ -710,5 +710,7 @@
 	"schedule_info_start_day_one": "This schedule will start on the day after the day the study was joined.",
 	"schedule_info_start_day_x": "Counting the day the study was joined as day 0, this schedule will start on day %d.",
 	"use_legacy_scheduling": "Use legacy scheduling",
-	"use_legacy_scheduling_info": "Use an older scheduling logic to determine day offsets. This logic is not dependent full days, but on 24-hour periods since the study was joined (dependent on time of day)."
+	"use_legacy_scheduling_info": "Use an older scheduling logic to determine day offsets. This logic is not dependent full days, but on 24-hour periods since the study was joined (dependent on time of day).",
+	"enable_tutorial_mode": "Enable tutorial mode (web)",
+	"enable_tutorial_mode_info": "On their first visit, web participants see an overview of the study's questionnaires and can take a no-submit practice run before starting."
 }

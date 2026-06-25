@@ -147,6 +147,89 @@ function buildPayload(args: SubmitArgs): DatasetPayload {
   };
 }
 
+// ── Upload protocol (client-side transparency log) ───────────────
+// ESMira's native apps keep a local record of every dataset sent to the
+// server so participants can verify what was uploaded. We mirror that here:
+// one entry per logical upload, persisted per study + user in localStorage.
+
+const PROTOCOL_KEY_PREFIX = 'esmira_upload_protocol_';
+const PROTOCOL_MAX = 200; // keep the log bounded
+
+export interface UploadProtocolEntry {
+  /** Stable id, used to flip a queued entry's status once it actually sends. */
+  id: string;
+  /** Upload time (epoch ms). */
+  time: number;
+  /** Survey name, or a label for non-questionnaire uploads. */
+  label: string;
+  eventType: 'joined' | 'questionnaire' | 'cognitive';
+  /** 'sent' once the server accepted it; 'pending' while queued offline. */
+  status: 'sent' | 'pending';
+}
+
+let protocolSeq = 0;
+function newProtocolId(): string {
+  protocolSeq += 1;
+  return `${Date.now()}-${protocolSeq}`;
+}
+
+function protocolKey(studyId: number, userId: string): string {
+  return `${PROTOCOL_KEY_PREFIX}${studyId}_${userId}`;
+}
+
+function loadRawProtocol(studyId: number, userId: string): UploadProtocolEntry[] {
+  try {
+    const raw = localStorage.getItem(protocolKey(studyId, userId));
+    return raw ? (JSON.parse(raw) as UploadProtocolEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProtocol(studyId: number, userId: string, list: UploadProtocolEntry[]): void {
+  try {
+    localStorage.setItem(protocolKey(studyId, userId), JSON.stringify(list.slice(-PROTOCOL_MAX)));
+  } catch {
+    /* storage full/unavailable */
+  }
+}
+
+/** Read the upload protocol for a study + user, newest first. */
+export function loadUploadProtocol(studyId: number, userId: string): UploadProtocolEntry[] {
+  return loadRawProtocol(studyId, userId).sort((a, b) => b.time - a.time);
+}
+
+function appendProtocol(studyId: number, userId: string, entries: UploadProtocolEntry[]): void {
+  if (!entries.length) return;
+  const list = loadRawProtocol(studyId, userId);
+  list.push(...entries);
+  saveProtocol(studyId, userId, list);
+}
+
+function markProtocolSent(studyId: number, userId: string, ids: string[]): void {
+  if (!ids.length) return;
+  const wanted = new Set(ids);
+  const list = loadRawProtocol(studyId, userId);
+  let changed = false;
+  for (const e of list) {
+    if (wanted.has(e.id) && e.status !== 'sent') {
+      e.status = 'sent';
+      changed = true;
+    }
+  }
+  if (changed) saveProtocol(studyId, userId, list);
+}
+
+function questionnaireProtocolEntries(args: SubmitArgs, status: UploadProtocolEntry['status']): UploadProtocolEntry[] {
+  const time = Date.now();
+  const entries: UploadProtocolEntry[] = [];
+  if (args.newParticipant) {
+    entries.push({ id: newProtocolId(), time, label: 'Joined study', eventType: 'joined', status });
+  }
+  entries.push({ id: newProtocolId(), time, label: args.questionnaireName, eventType: 'questionnaire', status });
+  return entries;
+}
+
 // ── Submission with offline retry queue ─────────────────────────
 
 const QUEUE_KEY = 'esmira_submit_queue';
@@ -154,6 +237,8 @@ const QUEUE_KEY = 'esmira_submit_queue';
 interface QueuedSubmit {
   payload: DatasetPayload;
   attempts: number;
+  /** Links this queued payload back to its pending upload-protocol entries. */
+  protocol?: { studyId: number; userId: string; ids: string[] };
 }
 
 function loadQueue(): QueuedSubmit[] {
@@ -193,13 +278,50 @@ export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
   const payload = buildPayload(args);
   try {
     await postDataset(payload);
+    appendProtocol(args.study.id, args.userId, questionnaireProtocolEntries(args, 'sent'));
     return true;
   } catch {
+    const entries = questionnaireProtocolEntries(args, 'pending');
+    appendProtocol(args.study.id, args.userId, entries);
     const queue = loadQueue();
-    queue.push({ payload, attempts: 1 });
+    queue.push({
+      payload,
+      attempts: 1,
+      protocol: { studyId: args.study.id, userId: args.userId, ids: entries.map((e) => e.id) },
+    });
     saveQueue(queue);
     return false;
   }
+}
+
+/**
+ * Send a free-text message from the participant to the research team via the
+ * existing public `api/save_message.php` (the same endpoint native apps use).
+ * The message is stored against the participant's study userId, so the
+ * researcher can link it to that participant's data — no real name or contact
+ * details are attached. Returns true on success; throws on a network or
+ * validation failure so the caller can surface a retry.
+ */
+export async function sendParticipantMessage(args: {
+  study: EsmiraStudy;
+  serverVersion: number;
+  userId: string;
+  content: string;
+}): Promise<boolean> {
+  const resp = await fetch(`${API_ROOT}api/save_message.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: args.userId,
+      studyId: args.study.id,
+      content: args.content,
+      serverVersion: args.serverVersion,
+    }),
+  });
+  if (!resp.ok) throw new Error(`save_message.php returned ${resp.status}`);
+  const env = await resp.json();
+  if (!env.success) throw new Error(env.error || 'Message rejected');
+  return true;
 }
 
 export interface CognitiveTrialsArgs {
@@ -244,12 +366,21 @@ export async function submitCognitiveTrials(args: CognitiveTrialsArgs): Promise<
       responses: { ...r, model },
     })),
   };
+  const entry: UploadProtocolEntry = {
+    id: newProtocolId(), time: now, label: args.trialsName, eventType: 'cognitive', status: 'sent',
+  };
   try {
     await postDataset(payload);
+    appendProtocol(args.study.id, args.userId, [entry]);
     return true;
   } catch {
+    appendProtocol(args.study.id, args.userId, [{ ...entry, status: 'pending' }]);
     const queue = loadQueue();
-    queue.push({ payload, attempts: 1 });
+    queue.push({
+      payload,
+      attempts: 1,
+      protocol: { studyId: args.study.id, userId: args.userId, ids: [entry.id] },
+    });
     saveQueue(queue);
     return false;
   }
@@ -264,6 +395,7 @@ export async function flushSubmitQueue(): Promise<void> {
     if (item.attempts >= 20) continue; // give up after many tries
     try {
       await postDataset(item.payload);
+      if (item.protocol) markProtocolSent(item.protocol.studyId, item.protocol.userId, item.protocol.ids);
     } catch {
       remaining.push({ ...item, attempts: item.attempts + 1 });
     }
