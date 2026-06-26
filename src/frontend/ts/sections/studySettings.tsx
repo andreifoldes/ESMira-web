@@ -44,14 +44,6 @@ export class Content extends SectionContent {
 		this.sectionData.loader.info(this.isFrozen ? Lang.get("info_study_frozen") : Lang.get("info_study_unfrozen"))
 	}
 
-	private toggleWearableProvider(study: Study, provider: string, enabled: boolean): void {
-		const index = study.wearablesProviders.indexOf(provider)
-		if (enabled && index == -1)
-			study.wearablesProviders.push(provider)
-		else if (!enabled && index != -1)
-			study.wearablesProviders.remove(index)
-	}
-
 	private async deleteStudy(study: Study): Promise<void> {
 		if (!safeConfirm(Lang.get("confirm_delete_study", study.title.get())))
 			return
@@ -189,29 +181,6 @@ export class Content extends SectionContent {
 								<small>{Lang.get('enable_web_push_info')}</small>
 							</label>
 							{study.webPushEnabled.get() && this.pushAdminView(study)}
-						</div>
-				}),
-				DashElement("vertical", {
-					content:
-						<div class="vAlignCenter">
-							<label class="noTitle noDesc">
-								<input type="checkbox" {...BindObservable(study.wearablesEnabled)} />
-								<span>{Lang.get('enable_wearables')}</span>
-								<small>{Lang.get('enable_wearables_info')}</small>
-							</label>
-							{study.wearablesEnabled.get() &&
-								<div class="leftPadding verticalPadding">
-									<small>{Lang.getWithColon('wearables_providers')}</small>
-									{(["fitbit", "withings", "oura"] as const).map((provider) =>
-										<label class="noTitle noDesc">
-											<input type="checkbox"
-												checked={study.wearablesProviders.indexOf(provider) != -1}
-												onchange={(e: InputEvent) => this.toggleWearableProvider(study, provider, (e.target as HTMLInputElement).checked)} />
-											<span>{Lang.get(provider)}</span>
-										</label>
-									)}
-								</div>
-							}
 						</div>
 				}),
 				this.hasFallbackUrls && DashElement(null, {

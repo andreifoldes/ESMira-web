@@ -52,6 +52,7 @@ $classIndex = [
 	'GetMediaZip' => 'backend\admin\features\readPermission\GetMediaZip',
 	'GetMedia' => 'backend\admin\features\readPermission\GetMedia',
 	'GetWearableDataZip' => 'backend\admin\features\readPermission\GetWearableDataZip',
+	'GetWearableInfo' => 'backend\admin\features\readPermission\GetWearableInfo',
 	'ListMerlinLogs' => 'backend\admin\features\readPermission\ListMerlinLogs',
 	'DeleteMerlinLog' => 'backend\admin\features\readPermission\DeleteMerlinLog',
 	'ChangeMerlinLog' => 'backend\admin\features\readPermission\ChangeMerlinLog',
