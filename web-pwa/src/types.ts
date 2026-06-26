@@ -120,11 +120,54 @@ export interface EsmiraPage {
   randomized?: boolean;
 }
 
+/** A single notification time within a schedule (ms since local midnight). */
+export interface EsmiraSignalTime {
+  startTimeOfDay: number;
+  endTimeOfDay?: number;
+  random?: boolean;
+  frequency?: number;
+}
+
+/** Recurrence for a set of signal times. */
+export interface EsmiraSchedule {
+  dailyRepeatRate?: number; // 1 = every day, 2 = every other day, …
+  weekdays?: number;        // bitfield, bit0=Sun … bit6=Sat; 0 = every weekday
+  dayOfMonth?: number;      // 1–31, 0 = any
+  skipFirstInLoop?: boolean;
+  startDayOne?: boolean;
+  signalTimes?: EsmiraSignalTime[];
+}
+
+export interface EsmiraActionTrigger {
+  schedules?: EsmiraSchedule[];
+}
+
 export interface EsmiraQuestionnaire {
   internalId: number;
   title: string;
   pages: EsmiraPage[];
+  // ── Scheduling / availability (served verbatim by api/studies.php) ──
+  /** Activation delay: not available until this many days after joining (0 = immediately). */
+  durationStartingAfterDays?: number;
+  /** Active for this many days after joining (0 = no expiry). */
   durationPeriodDays?: number;
+  /** Absolute availability window (epoch ms); 0 = unbounded. */
+  durationStart?: number;
+  durationEnd?: number;
+  /** Completion constraints. */
+  completableOnce?: boolean;
+  completableOncePerNotification?: boolean;
+  completableMinutesAfterNotification?: number;
+  completableAtSpecificTime?: boolean;
+  completableAtSpecificTimeStart?: number; // ms since midnight, -1 = off
+  completableAtSpecificTimeEnd?: number;
+  limitCompletionFrequency?: boolean;
+  completionFrequencyMinutes?: number;
+  actionTriggers?: EsmiraActionTrigger[];
+  /** Which answered items show a "Change response" affordance in the chat flow:
+   *  'previous' (only the last, default), 'any' (every prior item), or 'none'
+   *  (disabled — e.g. cognitive tasks, which must not be re-attempted). */
+  changeResponseMode?: 'previous' | 'any' | 'none';
 }
 
 export interface EsmiraStudy {

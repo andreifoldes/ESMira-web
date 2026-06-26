@@ -14,7 +14,7 @@ import {
   Settings, ClipboardList, Info, X, Grid, SkipForward, PlayCircle,
   Sun, Moon, Contrast, Type, Send, ChevronRight, ChevronLeft, CheckCircle, RotateCcw, LogOut,
   FileText, ShieldCheck, Bell, BellRing, BellOff, MessageSquare, UploadCloud, Clock, RefreshCw,
-  Download, Bug, ExternalLink, Watch,
+  Download, Bug, ExternalLink, Watch, Lock,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
@@ -28,6 +28,10 @@ import {
 } from './lib/esmiraApi';
 import type { UploadProtocolEntry } from './lib/esmiraApi';
 import { ensurePushSubscription, isPushSupported } from './lib/push';
+import {
+  computeAvailability, summarize, ensureEnrollment, loadCompletions, recordCompletion,
+  type Availability,
+} from './lib/availability';
 import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion, WearableStatus } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
 import { InstallPrompt } from './components/InstallPrompt';
@@ -193,7 +197,7 @@ export default function App() {
   const engineRef = useRef<OfflineSurveyEngine | null>(null);
   const initedRef = useRef(false);
   const surveyStartRef = useRef(0);
-  const activeQRef = useRef<{ id: number; name: string } | null>(null);
+  const activeQRef = useRef<{ id: number; name: string; changeMode: 'previous' | 'any' | 'none' } | null>(null);
   // True while a no-submit tutorial practice run is in progress (gates all network writes).
   const practiceRef = useRef(false);
   const [currentQuestion, setCurrentQuestion] = useState<PreloadedQuestion | null>(null);
@@ -235,6 +239,10 @@ export default function App() {
   const [aboutView, setAboutView] = useState<'main' | 'description' | 'consent' | 'protocol'>('main');
   // Bumped by the Upload protocol "Refresh" button to force a re-read of the log.
   const [protocolTick, setProtocolTick] = useState(0);
+  // Schedule anchor: when the participant enrolled (drives questionnaire availability).
+  const [enrolledAt, setEnrolledAt] = useState<number | null>(null);
+  // Ticks once a minute so availability windows re-evaluate while the app is open.
+  const [nowTick, setNowTick] = useState(0);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactText, setContactText] = useState('');
   const [contactStatus, setContactStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -243,6 +251,9 @@ export default function App() {
   webviewRef.current = webview;
 
   const scrollRef = useRef<HTMLElement | null>(null);
+  // Always-fresh userId for callbacks that would otherwise capture a stale closure.
+  const userIdRef = useRef('');
+  userIdRef.current = userId;
 
   // NB: compute the id OUTSIDE the updater so the updater stays pure (React
   // StrictMode double-invokes updaters, which would otherwise dupe ids/keys).
@@ -265,6 +276,19 @@ export default function App() {
     if (s.postInstallInstructions) pushBot(s.postInstallInstructions);
   }, [pushBot]);
 
+  // Enter the questionnaire list: stamp the enrollment anchor and greet with a
+  // schedule-aware message ("Choose a questionnaire" vs. "your study starts on …").
+  const enterList = useCallback((s: EsmiraStudy, lead?: string) => {
+    const uid = userIdRef.current;
+    const now = Date.now();
+    const joined = ensureEnrollment(s.id, uid, now);
+    setEnrolledAt(joined);
+    const visible = s.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE);
+    const { message } = summarize(visible, joined, now, loadCompletions(s.id, uid));
+    pushBot(lead ? `${lead} ${message}` : message);
+    setPhase('list');
+  }, [pushBot]);
+
   // After consent + name: offer a guided tour (yes/no) when the study enables it
   // and it hasn't been done yet; otherwise go straight to the questionnaire list.
   // `?tutorial=1` forces the tour, `?tutorial=0` suppresses the offer.
@@ -279,9 +303,8 @@ export default function App() {
       setPhase('tutorialOffer');
       return;
     }
-    pushBot('Choose a questionnaire to begin.');
-    setPhase('list');
-  }, [tutorialParam, pushTutorialIntro, pushBot]);
+    enterList(s);
+  }, [tutorialParam, pushTutorialIntro, pushBot, enterList]);
 
   const acceptTutorial = useCallback(() => {
     if (!study) return;
@@ -294,15 +317,39 @@ export default function App() {
     if (!study) return;
     pushUser('No thanks');
     localStorage.setItem(tutorialSeenKey(study.id), '1');
-    pushBot('No problem — choose a questionnaire to begin.');
-    setPhase('list');
-  }, [study, pushBot, pushUser]);
+    enterList(study, 'No problem —');
+  }, [study, enterList, pushUser]);
 
   const finishTutorial = useCallback(() => {
     if (study) localStorage.setItem(tutorialSeenKey(study.id), '1');
-    pushBot("Great — you're all set. Choose a questionnaire to begin.");
-    setPhase('list');
-  }, [study, pushBot]);
+    enterList(study!, 'Great — that\'s the tour done.');
+  }, [study, enterList]);
+
+  // Ensure the enrollment anchor exists once the study + user are known (backstop for
+  // any path into the list that doesn't go through enterList), and re-evaluate
+  // availability windows every minute while the app is open.
+  useEffect(() => {
+    if (study && userId && enrolledAt == null) setEnrolledAt(ensureEnrollment(study.id, userId, Date.now()));
+  }, [study, userId, enrolledAt]);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Availability of each visible questionnaire (recomputed as time/enrollment change).
+  const questionnaireAvailability = useMemo(() => {
+    const map = new Map<number, Availability>();
+    if (!study || enrolledAt == null) return map;
+    const completions = loadCompletions(study.id, userId);
+    const now = Date.now();
+    for (const q of study.questionnaires) {
+      if (q.title === TRIALS_QN_TITLE) continue;
+      map.set(q.internalId, computeAvailability(q, enrolledAt, now, completions));
+    }
+    return map;
+    // nowTick forces re-evaluation each minute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [study, userId, enrolledAt, nowTick]);
 
   // ── Retry queue flusher (re-installs cleanly on remount) ─────
   useEffect(() => installSubmitQueueFlusher(), []);
@@ -645,11 +692,23 @@ export default function App() {
     if (!study) return;
     const q = study.questionnaires.find((x) => x.internalId === internalId);
     if (!q) return;
+    // Gate real (non-practice) completions by the questionnaire's schedule.
+    if (!practice) {
+      const av = questionnaireAvailability.get(internalId);
+      if (av && av.state !== 'available') {
+        pushBot(
+          av.state === 'completed' ? "You've already completed that questionnaire."
+          : av.state === 'ended' ? 'That questionnaire is no longer available.'
+          : `That questionnaire isn't open yet — ${av.reason}.`,
+        );
+        return;
+      }
+    }
     practiceRef.current = practice;
     const session = adaptQuestionnaire(study.id, q, Date.now());
     const engine = new OfflineSurveyEngine(session);
     engineRef.current = engine;
-    activeQRef.current = { id: q.internalId, name: q.title };
+    activeQRef.current = { id: q.internalId, name: q.title, changeMode: q.changeResponseMode ?? 'previous' };
     surveyStartRef.current = Date.now();
     pushUser(q.title);
     if (practice) pushSection('Practice run — nothing you enter is saved');
@@ -681,7 +740,12 @@ export default function App() {
     if (!engine) return;
     const rewound = engine.rewindTo(qid);
     if (!rewound) return;
-    setMessages((prev) => prev.filter((m) => m.qid !== qid));
+    // Truncate the thread back to that question (removes it and everything after),
+    // so re-answering from here — including "any"-mode back-navigation — stays consistent.
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.qid === qid);
+      return idx >= 0 ? prev.slice(0, idx) : prev;
+    });
     setCurrentQuestion(rewound);
     setProgress(engine.getProgress());
   };
@@ -769,6 +833,12 @@ export default function App() {
     if (newParticipant) localStorage.setItem(joinedKey, String(submittedAt));
     const completedKey = `esmira_completed_${study.id}_${userId}`;
     localStorage.setItem(completedKey, String(Number(localStorage.getItem(completedKey) || '0') + 1));
+    // Record against the schedule so completion limits (once / frequency / per-signal) apply.
+    if (active) {
+      const anchor = enrolledAt ?? ensureEnrollment(study.id, userId, submittedAt);
+      const q = study.questionnaires.find((x) => x.internalId === active.id);
+      if (q) recordCompletion(study.id, userId, q, anchor, submittedAt);
+    }
     setSubmitting(false);
     pushBot(ok
       ? '✅ Thank you — your responses have been recorded.'
@@ -923,7 +993,9 @@ export default function App() {
                   {msg.sender === 'user' && <CheckCircle size={12} className="text-on-primary opacity-70" aria-hidden="true" />}
                 </div>
               </div>
-              {phase === 'survey' && msg.qid && msg.id === lastAnswerId && (
+              {phase === 'survey' && msg.qid
+                && (activeQRef.current?.changeMode ?? 'previous') !== 'none'
+                && ((activeQRef.current?.changeMode ?? 'previous') === 'any' || msg.id === lastAnswerId) && (
                 <button
                   onClick={() => onChangeResponse(msg.qid!)}
                   className="mt-1 px-3 py-1.5 bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-surface-container-highest transition-colors active:scale-95"
@@ -1034,13 +1106,28 @@ export default function App() {
         {/* Questionnaire list */}
         {phase === 'list' && study && (
           <div className="self-start w-[85%] flex flex-col gap-2">
-            {study.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE).map((q) => (
-              <button key={q.internalId} onClick={() => startQuestionnaire(q.internalId)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 hover:bg-surface-container-high rounded-xl transition-colors text-left shadow-sm message-shadow">
-                <span className={cn('font-semibold', textSizeClass)}>{q.title}</span>
-                <ChevronRight size={18} className="text-outline-variant" aria-hidden="true" />
-              </button>
-            ))}
+            {study.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE).map((q) => {
+              const av = questionnaireAvailability.get(q.internalId);
+              const open = !av || av.state === 'available';
+              return open ? (
+                <button key={q.internalId} onClick={() => startQuestionnaire(q.internalId)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 hover:bg-surface-container-high rounded-xl transition-colors text-left shadow-sm message-shadow">
+                  <span className={cn('font-semibold', textSizeClass)}>{q.title}</span>
+                  <ChevronRight size={18} className="text-outline-variant" aria-hidden="true" />
+                </button>
+              ) : (
+                <div key={q.internalId} aria-disabled="true"
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-surface-container-high/40 dark:bg-surface-container-highest/40 border border-dashed border-outline-variant/40 rounded-xl text-left opacity-70">
+                  <div className="min-w-0">
+                    <span className={cn('font-semibold text-on-surface-variant', textSizeClass)}>{q.title}</span>
+                    <p className="text-xs text-on-surface-variant mt-0.5 flex items-center gap-1">
+                      <Lock size={11} aria-hidden="true" />{av?.reason}
+                    </p>
+                  </div>
+                  <Clock size={16} className="text-outline-variant shrink-0" aria-hidden="true" />
+                </div>
+              );
+            })}
           </div>
         )}
 
