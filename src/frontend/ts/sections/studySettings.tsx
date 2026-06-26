@@ -12,6 +12,7 @@ import { DashRow } from "../components/DashRow";
 import { DashElement } from "../components/DashElement";
 import { StudyMetadata } from "../loader/StudyLoader";
 import { SectionData } from "../site/SectionData";
+import { ServerInfo } from "../constants/ServerInfo";
 
 export class Content extends SectionContent {
 	private isFrozen: boolean = false
@@ -92,20 +93,21 @@ export class Content extends SectionContent {
 							</span>
 							<br />
 							<br />
-							<label class="middle noDesc">
+							<label class="middle noDesc" style={ServerInfo.webOnlyMode ? "opacity:0.45" : ""}>
 								<small>{Lang.get('Android')}</small>
-								<input type="checkbox" {...BindObservable(study.publishedAndroid)} />
+								<input type="checkbox" {...BindObservable(study.publishedAndroid)} disabled={ServerInfo.webOnlyMode} />
 							</label>
 							&nbsp;
-							<label class="middle noDesc">
+							<label class="middle noDesc" style={ServerInfo.webOnlyMode ? "opacity:0.45" : ""}>
 								<small>{Lang.get('iOS')}</small>
-								<input type="checkbox" {...BindObservable(study.publishedIOS)} />
+								<input type="checkbox" {...BindObservable(study.publishedIOS)} disabled={ServerInfo.webOnlyMode} />
 							</label>
 							&nbsp;
 							<label class="middle noDesc">
 								<small>{Lang.get('Web')}</small>
 								<input type="checkbox" {...BindObservable(study.publishedWeb)} />
 							</label>
+							{ServerInfo.webOnlyMode && <div><small><i>{Lang.get('web_only_disabled_note')}</i></small></div>}
 						</div>
 				}),
 				DashElement("vertical", {

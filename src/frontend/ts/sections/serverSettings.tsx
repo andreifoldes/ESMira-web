@@ -205,7 +205,15 @@ export class Content extends SectionContent {
 					{ObservableLangChooser(settings)}
 				</label>
 			</div>
-			
+
+			<div class="center spacingTop">
+				<label class="noTitle noDesc">
+					<input type="checkbox" {...BindObservable(settings.webOnlyMode)} />
+					<span>{Lang.get("web_only_mode")}</span>
+					<small>{Lang.get("web_only_mode_info")}</small>
+				</label>
+			</div>
+
 			{DashRow(
 				DashElement(null, {
 					small: true,

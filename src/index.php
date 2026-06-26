@@ -91,7 +91,7 @@ $pluginsEnabled = $pluginStore->isEnabled();
 		}
 	?></script>
 </head>
-<body onload="ESMira.init(<?php echo "'$jsKey','$servername',$serverVersion,'$accessKey','$lang','$type'"; ?>)">
+<body onload="ESMira.init(<?php echo "'$jsKey','$servername',$serverVersion,'$accessKey','$lang','$type'," . (Configs::get('webOnlyMode') ? 'true' : 'false'); ?>)">
 
 <div id="header">
 	<a href="#<?php echo $jsKey; ?>">
