@@ -750,6 +750,11 @@ export default function App() {
     setProgress(engine.getProgress());
   };
 
+  // Cognitive tasks are never changeable, regardless of the questionnaire's mode:
+  // their result can only be redone, and re-attempts aren't permitted.
+  const isCognitiveQid = (qid: string): boolean =>
+    engineRef.current?.session.questions.find((x) => x.id === qid)?.type === 'cognitive';
+
   // Settle a question into the thread when it's skipped or continued past.
   // Cognitive link-out items hold raw HTML in `text` (rendered live as a launch
   // card via title/description, never as text), so settling that text as a plain
@@ -994,6 +999,7 @@ export default function App() {
                 </div>
               </div>
               {phase === 'survey' && msg.qid
+                && !isCognitiveQid(msg.qid)
                 && (activeQRef.current?.changeMode ?? 'previous') !== 'none'
                 && ((activeQRef.current?.changeMode ?? 'previous') === 'any' || msg.id === lastAnswerId) && (
                 <button
@@ -1104,10 +1110,20 @@ export default function App() {
         )}
 
         {/* Questionnaire list */}
-        {phase === 'list' && study && (
+        {phase === 'list' && study && (() => {
+          // Show what the participant can act on now: the currently-available
+          // questionnaires, or — when nothing is open yet — only the single next one to
+          // unlock (not the whole locked list).
+          const withAv = study.questionnaires
+            .filter((q) => q.title !== TRIALS_QN_TITLE)
+            .map((q) => ({ q, av: questionnaireAvailability.get(q.internalId) }));
+          const available = withAv.filter((x) => !x.av || x.av.state === 'available');
+          const items = available.length
+            ? available
+            : withAv.filter((x) => x.av?.opensAt).sort((a, b) => a.av!.opensAt! - b.av!.opensAt!).slice(0, 1);
+          return (
           <div className="self-start w-[85%] flex flex-col gap-2">
-            {study.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE).map((q) => {
-              const av = questionnaireAvailability.get(q.internalId);
+            {items.map(({ q, av }) => {
               const open = !av || av.state === 'available';
               return open ? (
                 <button key={q.internalId} onClick={() => startQuestionnaire(q.internalId)}
@@ -1129,7 +1145,8 @@ export default function App() {
               );
             })}
           </div>
-        )}
+          );
+        })()}
 
         {/* Tutorial overview — first-visit orientation with optional practice runs */}
         {phase === 'tutorial' && study && (
