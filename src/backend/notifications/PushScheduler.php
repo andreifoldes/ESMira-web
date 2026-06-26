@@ -25,7 +25,10 @@ namespace backend\notifications;
  */
 class PushScheduler {
 	const ONE_DAY = 86400000;
-	const ACTION_NOTIFICATION = 3; // Action.type (1=invitation, 2=message, 3=notification)
+	// Action.type values that produce a participant-facing notification: 1=invitation
+	// (the standard EMA "answer this questionnaire" prompt) and 3=simple notification.
+	// 2=message is an in-app message (no push), so it is excluded.
+	const NOTIFICATION_ACTION_TYPES = [1, 3];
 
 	/**
 	 * @param array $study           decoded, language-resolved study config
@@ -122,10 +125,10 @@ class PushScheduler {
 		return $out;
 	}
 
-	/** [body, reminderCount, reminderDelayMs] for a trigger's Notification action, or null. */
+	/** [body, reminderCount, reminderDelayMs] for a trigger's notifying action, or null. */
 	private static function notificationAction(array $at): ?array {
 		foreach(($at['actions'] ?? []) as $a) {
-			if((int) ($a['type'] ?? 0) === self::ACTION_NOTIFICATION) {
+			if(in_array((int) ($a['type'] ?? 0), self::NOTIFICATION_ACTION_TYPES, true)) {
 				$msg   = $a['msgText'] ?? '';
 				$body  = (is_string($msg) && $msg !== '') ? $msg : 'You have a questionnaire to complete.';
 				$count = max(0, (int) ($a['reminder_count'] ?? 0));
