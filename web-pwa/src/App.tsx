@@ -13,7 +13,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Settings, ClipboardList, Info, X, Grid, SkipForward, PlayCircle,
   Sun, Moon, Contrast, Type, Send, ChevronRight, ChevronLeft, CheckCircle, RotateCcw, LogOut,
-  FileText, ShieldCheck, Bell, MessageSquare, UploadCloud, Clock, RefreshCw,
+  FileText, ShieldCheck, Bell, BellRing, BellOff, MessageSquare, UploadCloud, Clock, RefreshCw,
+  Download, Bug, ExternalLink,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
@@ -21,13 +22,22 @@ import { adaptQuestionnaire } from './lib/esmiraAdapter';
 import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
-  flushSubmitQueue,
+  flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
+  subscribeToPush, fetchNextNotification,
 } from './lib/esmiraApi';
 import type { UploadProtocolEntry } from './lib/esmiraApi';
+import { ensurePushSubscription, isPushSupported } from './lib/push';
 import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
+import { InstallPrompt } from './components/InstallPrompt';
 
-type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial';
+type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'enterKey';
+
+/** localStorage key holding the last study invite code that loaded successfully,
+ *  so an installed home-screen launch (which carries no ?key=) reopens it. */
+const LAST_KEY_STORE = 'esmira_last_key';
+/** PWA package version, injected at build time (see vite.config.ts). */
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 type TextSize = 'normal' | 'large' | 'xlarge' | 'xxlarge';
 
 interface ChatMsg {
@@ -98,7 +108,9 @@ const mkId = () => `m${++msgSeq}`;
  */
 function resolveUserId(studyId: number, params: URLSearchParams): string {
   const storeKey = `esmira_userid_${studyId}`;
-  const fromUrl = (params.get('uid') ?? params.get('user_id') ?? params.get('userId') ?? '').trim();
+  const fromUrl = (
+    params.get('pid') ?? params.get('uid') ?? params.get('user_id') ?? params.get('userId') ?? ''
+  ).trim();
   if (fromUrl) {
     localStorage.setItem(storeKey, fromUrl);
     return fromUrl;
@@ -167,6 +179,7 @@ export default function App() {
   const [study, setStudy] = useState<EsmiraStudy | null>(null);
   const [serverVersion, setServerVersion] = useState(11);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState(''); // invite-code field on the enterKey screen
 
   const [participant, setParticipant] = useState(''); // display name (username)
   const [userId, setUserId] = useState('');           // stable backend identifier
@@ -192,6 +205,20 @@ export default function App() {
 
   const [gridMenuOpen, setGridMenuOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
+  // Settings modal nested navigation: appearance (main) + the app-level features.
+  const [settingsView, setSettingsView] = useState<'main' | 'about' | 'notifications' | 'errorReport'>('main');
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done' | 'error'>('idle');
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
+  );
+  // Server VAPID public key (present only when a study has web push enabled).
+  const [vapidKey, setVapidKey] = useState<string | null>(null);
+  // Soft pre-prompt shown once after consent for push-enabled studies.
+  const [pushPromptOpen, setPushPromptOpen] = useState(false);
+  // Next scheduled reminder (UTC ms) shown in the Details panel; null = none/unknown.
+  const [nextNotification, setNextNotification] = useState<number | null>(null);
+  const [errorText, setErrorText] = useState('');
+  const [errorStatus, setErrorStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [aboutOpen, setAboutOpen] = useState(false);
   const [aboutView, setAboutView] = useState<'main' | 'description' | 'consent' | 'protocol'>('main');
   // Bumped by the Upload protocol "Refresh" button to force a re-read of the log.
@@ -250,20 +277,28 @@ export default function App() {
 
   // ── Retry queue flusher (re-installs cleanly on remount) ─────
   useEffect(() => installSubmitQueueFlusher(), []);
+  // ── Capture client errors for "Send error report" ────────────
+  useEffect(() => installErrorLogger(), []);
 
   // ── Load study once (guarded against StrictMode double-mount) ─
   useEffect(() => {
     if (initedRef.current) return;
     initedRef.current = true;
-    if (!accessKey) {
-      setLoadError('No study access key in the URL. Expected ?key=YOUR_KEY');
-      setPhase('error');
+    // The invite code from the URL, or the last one that worked (so an installed
+    // home-screen launch — which carries no ?key= — reopens the same study).
+    const effectiveKey = accessKey || localStorage.getItem(LAST_KEY_STORE) || '';
+    if (!effectiveKey) {
+      // No code anywhere: ask the participant for their study invite code.
+      setPhase('enterKey');
       return;
     }
-    fetchStudy(accessKey, studyIdParam)
-      .then(({ study, serverVersion }) => {
+    fetchStudy(effectiveKey, studyIdParam)
+      .then(({ study, serverVersion, vapidPublicKey }) => {
+        // Remember the code only once it actually loaded a study.
+        localStorage.setItem(LAST_KEY_STORE, effectiveKey);
         setStudy(study);
         setServerVersion(serverVersion);
+        setVapidKey(vapidPublicKey ?? null);
         // Assign/restore the stable user id (invite-link param > stored > random).
         setUserId(resolveUserId(study.id, params));
         const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
@@ -286,6 +321,9 @@ export default function App() {
         }
       })
       .catch((e: unknown) => {
+        // A stored code that no longer resolves shouldn't trap the participant on
+        // every launch — forget it so they can enter a fresh one.
+        localStorage.removeItem(LAST_KEY_STORE);
         setLoadError(e instanceof Error ? e.message : 'Could not load the study');
         setPhase('error');
       });
@@ -347,6 +385,136 @@ export default function App() {
       setContactStatus('sent');
     } catch {
       setContactStatus('error');
+    }
+  };
+
+  // ── Settings modal: open on the main (appearance) view, reset on close ──
+  const openSettings = () => {
+    setSettingsView('main');
+    setUpdateStatus('idle');
+    setErrorStatus('idle');
+    setErrorText('');
+    if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission);
+    setA11yOpen(true);
+  };
+  const closeSettings = () => {
+    setA11yOpen(false);
+    setSettingsView('main');
+    setUpdateStatus('idle');
+  };
+
+  // ── Update studies: re-download the study config and flush the queue ──
+  const updateStudies = async () => {
+    if (updateStatus === 'updating') return;
+    const effectiveKey = accessKey || localStorage.getItem(LAST_KEY_STORE) || '';
+    if (!effectiveKey) { setUpdateStatus('error'); return; }
+    setUpdateStatus('updating');
+    try {
+      await flushSubmitQueue();
+      const { study: fresh, serverVersion: sv, vapidPublicKey } = await fetchStudy(effectiveKey, studyIdParam);
+      setStudy(fresh);
+      setServerVersion(sv);
+      setVapidKey(vapidPublicKey ?? null);
+      setUpdateStatus('done');
+    } catch {
+      setUpdateStatus('error');
+    }
+  };
+
+  // ── Web push: register this device's subscription so the server can send
+  //    questionnaire reminders while the app is closed. Best-effort & silent. ──
+  const subscribePush = useCallback(async () => {
+    if (!study || !vapidKey || !isPushSupported()) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    try {
+      const subscription = await ensurePushSubscription(vapidKey);
+      await subscribeToPush({ study, serverVersion, userId, subscription });
+      localStorage.setItem(`esmira_push_subscribed_${study.id}`, '1');
+    } catch {
+      /* unsupported / SW not ready / offline — the next visit retries */
+    }
+  }, [study, vapidKey, serverVersion, userId]);
+
+  // ── Notifications: ask the browser for permission, then subscribe to push ──
+  const requestNotifications = async () => {
+    if (typeof Notification === 'undefined') return;
+    try {
+      const perm = await Notification.requestPermission();
+      setNotifPerm(perm);
+      if (perm === 'granted') await subscribePush();
+    } catch {
+      /* user dismissed / unsupported */
+    }
+  };
+
+  // After consent (once the participant reaches the questionnaire list/tutorial),
+  // for push-enabled studies: silently (re)subscribe if already granted, else show
+  // the soft pre-prompt once. Runs after state settles, so no first-render race.
+  useEffect(() => {
+    if (!study || !vapidKey || !study.webPushEnabled) return;
+    if (phase !== 'list' && phase !== 'tutorial') return;
+    if (!isPushSupported() || typeof Notification === 'undefined') return;
+    if (Notification.permission === 'granted') { void subscribePush(); return; }
+    if (Notification.permission === 'default'
+        && !localStorage.getItem(`esmira_push_prompted_${study.id}`)
+        && !pushPromptOpen) {
+      setPushPromptOpen(true);
+    }
+  }, [phase, study, vapidKey, pushPromptOpen, subscribePush]);
+
+  const dismissPushPrompt = (enable: boolean) => {
+    if (study) localStorage.setItem(`esmira_push_prompted_${study.id}`, '1');
+    setPushPromptOpen(false);
+    if (enable) void requestNotifications();
+  };
+
+  // Refresh the "Next notification" row whenever the Details panel opens.
+  useEffect(() => {
+    if (!aboutOpen || !study?.webPushEnabled || !userId) { setNextNotification(null); return; }
+    let cancelled = false;
+    void fetchNextNotification(study.id, userId).then((t) => { if (!cancelled) setNextNotification(t); });
+    return () => { cancelled = true; };
+  }, [aboutOpen, study, userId]);
+
+  // ── Send error report: assemble diagnostics + forward to researchers ──
+  // No survey answers are included — only the participant's note and technical
+  // context that helps diagnose problems (device, versions, recent JS errors).
+  const buildErrorReport = (note: string): string => {
+    const lines: string[] = ['--- ESMira error report ---'];
+    const trimmed = note.trim();
+    if (trimmed) lines.push('', 'Participant note:', trimmed);
+    lines.push(
+      '',
+      `App version: ${APP_VERSION}`,
+      `Server version: ${serverVersion}`,
+      `Server: ${serverRootUrl()}`,
+      `Study: ${study?.title ?? '—'} (id ${study?.id ?? '—'})`,
+      `User id: ${userId || '—'}`,
+      `Pending uploads: ${pendingSubmitCount()}`,
+      `Online: ${navigator.onLine}`,
+      `Language: ${navigator.language}`,
+      `User agent: ${navigator.userAgent}`,
+    );
+    const log = loadErrorLog();
+    if (log.length) {
+      lines.push('', `Recent errors (${log.length}):`);
+      for (const e of log.slice(-15)) {
+        lines.push(`  [${new Date(e.time).toISOString()}] ${e.message}`);
+      }
+    } else {
+      lines.push('', 'No client errors recorded.');
+    }
+    return lines.join('\n');
+  };
+  const sendErrorReport = async () => {
+    if (!study || errorStatus === 'sending') return;
+    setErrorStatus('sending');
+    try {
+      await sendParticipantMessage({ study, serverVersion, userId, content: buildErrorReport(errorText) });
+      clearErrorLog();
+      setErrorStatus('sent');
+    } catch {
+      setErrorStatus('error');
     }
   };
 
@@ -587,6 +755,15 @@ export default function App() {
   const footerActive = phase === 'name' || (phase === 'survey' && currentQuestion?.type === 'text');
   const footerPlaceholder = phase === 'name' ? 'Enter your name' : 'Type your response…';
 
+  // Submit the invite code: reload with ?key= so the normal mount flow runs (and
+  // any uid/pid in the URL is still honoured). The code is only remembered once
+  // it successfully loads a study (see the load effect).
+  const submitAccessKey = () => {
+    const code = keyInput.trim();
+    if (!code) return;
+    window.location.assign(`${window.location.pathname}?key=${encodeURIComponent(code)}`);
+  };
+
   // ── Render ───────────────────────────────────────────────────
   return (
     <div className={cn(
@@ -606,6 +783,7 @@ export default function App() {
             </span>
           </div>
         </div>
+        <InstallPrompt variant="compact" className="ml-2" />
       </header>
 
       {/* Chat area */}
@@ -651,8 +829,49 @@ export default function App() {
 
         {/* Error */}
         {phase === 'error' && (
-          <div className="self-center max-w-[85%] bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm font-medium border border-red-200 dark:border-red-500/30">
-            {loadError}
+          <div className="self-center max-w-[85%] flex flex-col items-center gap-3">
+            <div className="bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm font-medium border border-red-200 dark:border-red-500/30">
+              {loadError}
+            </div>
+            <button
+              onClick={() => { localStorage.removeItem(LAST_KEY_STORE); setLoadError(null); setKeyInput(''); setPhase('enterKey'); }}
+              className="px-4 py-2 bg-surface-container-high dark:bg-surface-container-highest text-on-surface font-semibold rounded-full text-sm active:scale-95 transition-all"
+            >
+              Enter a different code
+            </button>
+          </div>
+        )}
+
+        {/* Invite-code prompt (no study key in the URL or remembered) */}
+        {phase === 'enterKey' && (
+          <div className="self-center w-full max-w-sm mt-4 flex flex-col gap-4">
+            <div className="bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-5 flex flex-col gap-3">
+              <h2 className="text-lg font-bold text-on-surface">Enter your study invite code</h2>
+              <p className="text-sm text-on-surface-variant leading-relaxed">
+                Ask the researcher running your study for your invite code, then enter it below to begin.
+              </p>
+              <input
+                type="text"
+                inputMode="text"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitAccessKey(); }}
+                placeholder="Invite code"
+                aria-label="Study invite code"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <button
+                onClick={submitAccessKey}
+                disabled={!keyInput.trim()}
+                className="w-full bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-50 disabled:active:scale-100"
+              >
+                Continue
+              </button>
+            </div>
+            <InstallPrompt variant="card" />
           </div>
         )}
 
@@ -666,6 +885,31 @@ export default function App() {
           <div className="self-start w-[85%] flex gap-3">
             <button onClick={() => onConsent(true)} className="flex-1 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all">I consent</button>
             <button onClick={() => onConsent(false)} className="flex-1 bg-surface-container-high text-on-surface font-bold py-3 rounded-full active:scale-95 transition-all">I do not consent</button>
+          </div>
+        )}
+
+        {/* Push opt-in soft pre-prompt (shown once after consent, push-enabled studies) */}
+        {pushPromptOpen && (
+          <div className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
+            <div className="flex items-start gap-2">
+              <BellRing size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
+              <div>
+                <p className="font-bold text-on-surface">Get survey reminders?</p>
+                <p className={cn('text-on-surface-variant mt-0.5', textSizeClass)}>
+                  Allow notifications so we can remind you when a questionnaire is due — even when the app is closed.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => dismissPushPrompt(true)}
+                className="flex-1 inline-flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all">
+                <BellRing size={16} aria-hidden="true" /> Enable
+              </button>
+              <button onClick={() => dismissPushPrompt(false)}
+                className="flex-1 bg-surface-container-high text-on-surface font-bold py-3 rounded-full active:scale-95 transition-all">
+                Not now
+              </button>
+            </div>
           </div>
         )}
 
@@ -759,7 +1003,7 @@ export default function App() {
                   >
                     <div className="grid grid-cols-2 gap-3">
                       {[
-                        { key: 'settings', display: 'Settings', icon: Settings, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', onSelect: () => setA11yOpen(true) },
+                        { key: 'settings', display: 'Settings', icon: Settings, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', onSelect: openSettings },
                         { key: 'about', display: 'Details', icon: Info, color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-500/10', onSelect: () => { setAboutView('main'); setAboutOpen(true); } },
                         { key: 'contact', display: 'Contact', icon: MessageSquare, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-500/10', onSelect: openContact },
                         ...(phase === 'survey' && currentQuestion
@@ -805,51 +1049,101 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Accessibility modal */}
+      {/* Settings modal — appearance + app-level features (error report, notifications, update, about) */}
       <AnimatePresence>
-        {a11yOpen && (
+        {a11yOpen && (() => {
+          const settingsTitle = settingsView === 'about' ? 'About ESMira'
+            : settingsView === 'notifications' ? 'Notifications'
+            : settingsView === 'errorReport' ? 'Send error report'
+            : 'Settings';
+          return (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <motion.div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
               className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
-                <h2 id="settings-dialog-title" className="font-bold text-lg flex items-center gap-2"><Settings size={20} aria-hidden="true" /> Settings</h2>
-                <button onClick={() => setA11yOpen(false)} aria-label="Close Settings" className="p-1 hover:bg-surface-container-high rounded-full"><X size={20} aria-hidden="true" /></button>
+              <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-outline-variant/30 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  {settingsView !== 'main' && (
+                    <button onClick={() => setSettingsView('main')} aria-label="Back" className="p-1 -ml-1 hover:bg-surface-container-high rounded-full shrink-0"><ChevronLeft size={20} aria-hidden="true" /></button>
+                  )}
+                  <h2 id="settings-dialog-title" className="font-bold text-lg flex items-center gap-2 truncate">
+                    {settingsView === 'main' && <Settings size={20} aria-hidden="true" />}{settingsTitle}
+                  </h2>
+                </div>
+                <button onClick={closeSettings} aria-label="Close Settings" className="p-1 hover:bg-surface-container-high rounded-full shrink-0"><X size={20} aria-hidden="true" /></button>
               </div>
-              <div className="p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
-                {/* Live preview — reflects theme, contrast and text size */}
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">Preview</div>
-                  <div className="rounded-xl p-4 flex flex-col gap-3 chat-wallpaper border border-outline-variant/30 overflow-hidden bg-surface-container-low">
-                    <div className="self-start max-w-[85%]">
-                      <div className="px-3 py-2 rounded-2xl message-shadow bg-white dark:bg-surface-container-lowest text-on-surface rounded-tl-none border border-slate-200 dark:border-outline-variant/30">
-                        <p className={cn('leading-relaxed font-medium', textSizeClass)}>How does this look?</p>
+
+              {settingsView === 'main' ? (
+                <div className="p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
+                  {/* Live preview — reflects theme, contrast and text size */}
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">Preview</div>
+                    <div className="rounded-xl p-4 flex flex-col gap-3 chat-wallpaper border border-outline-variant/30 overflow-hidden bg-surface-container-low">
+                      <div className="self-start max-w-[85%]">
+                        <div className="px-3 py-2 rounded-2xl message-shadow bg-white dark:bg-surface-container-lowest text-on-surface rounded-tl-none border border-slate-200 dark:border-outline-variant/30">
+                          <p className={cn('leading-relaxed font-medium', textSizeClass)}>How does this look?</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="self-end max-w-[85%]">
-                      <div className="px-3 py-2 rounded-2xl message-shadow bg-primary text-on-primary rounded-tr-none">
-                        <p className={cn('leading-relaxed font-medium', textSizeClass)}>Looks great!</p>
+                      <div className="self-end max-w-[85%]">
+                        <div className="px-3 py-2 rounded-2xl message-shadow bg-primary text-on-primary rounded-tr-none">
+                          <p className={cn('leading-relaxed font-medium', textSizeClass)}>Looks great!</p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                <Toggle icon={<Moon size={18} aria-hidden="true" />} label="Dark mode" on={dark} onClick={() => setDark((v) => !v)} />
-                <Toggle icon={<Contrast size={18} aria-hidden="true" />} label="High contrast" on={highContrast} onClick={() => setHighContrast((v) => !v)} />
-                <Toggle icon={<Sun size={18} aria-hidden="true" />} label="Reduce motion" on={reduceMotion} onClick={() => setReduceMotion((v) => !v)} />
-                <div>
-                  <div className="flex items-center gap-2 mb-2"><Type size={18} aria-hidden="true" /><span className="font-semibold text-sm">Text size</span></div>
-                  <div role="group" aria-label="Text size" className="grid grid-cols-4 gap-2">
-                    {(['normal', 'large', 'xlarge', 'xxlarge'] as TextSize[]).map((s) => (
-                      <button key={s} onClick={() => setTextSize(s)} aria-pressed={textSize === s}
-                        className={cn('py-2 rounded-full text-xs font-bold transition-colors',
-                          textSize === s ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface')}>{TEXT_SIZE_LABEL[s]}</button>
-                    ))}
+                  <Toggle icon={<Moon size={18} aria-hidden="true" />} label="Dark mode" on={dark} onClick={() => setDark((v) => !v)} />
+                  <Toggle icon={<Contrast size={18} aria-hidden="true" />} label="High contrast" on={highContrast} onClick={() => setHighContrast((v) => !v)} />
+                  <Toggle icon={<Sun size={18} aria-hidden="true" />} label="Reduce motion" on={reduceMotion} onClick={() => setReduceMotion((v) => !v)} />
+                  <div>
+                    <div className="flex items-center gap-2 mb-2"><Type size={18} aria-hidden="true" /><span className="font-semibold text-sm">Text size</span></div>
+                    <div role="group" aria-label="Text size" className="grid grid-cols-4 gap-2">
+                      {(['normal', 'large', 'xlarge', 'xxlarge'] as TextSize[]).map((s) => (
+                        <button key={s} onClick={() => setTextSize(s)} aria-pressed={textSize === s}
+                          className={cn('py-2 rounded-full text-xs font-bold transition-colors',
+                            textSize === s ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface')}>{TEXT_SIZE_LABEL[s]}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* App-level actions (mirrors the native ESMira app menu) */}
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1">App</div>
+                    <div className="flex flex-col">
+                      <AboutLinkButton icon={Bug} label="Send error report" onClick={() => { setErrorStatus('idle'); setErrorText(''); setSettingsView('errorReport'); }} />
+                      <AboutLinkButton icon={BellRing} label="Notifications not working?" onClick={() => { if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission); setSettingsView('notifications'); }} />
+                      <button onClick={updateStudies} disabled={updateStatus === 'updating'}
+                        className="w-full flex items-center gap-3 px-2 py-3 rounded-xl hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors text-left disabled:opacity-70">
+                        <span className="p-2 rounded-full bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant shrink-0"><Download size={18} aria-hidden="true" /></span>
+                        <span className="flex-1 font-semibold text-sm text-on-surface">Update studies</span>
+                        {updateStatus === 'updating' && <RefreshCw size={16} className="animate-spin text-on-surface-variant shrink-0" aria-hidden="true" />}
+                        {updateStatus === 'done' && <span className="text-xs font-semibold text-green-600 dark:text-green-400 shrink-0">Updated</span>}
+                        {updateStatus === 'error' && <span className="text-xs font-semibold text-red-600 dark:text-red-400 shrink-0">Failed</span>}
+                        {updateStatus === 'idle' && <ChevronRight size={18} className="text-outline-variant shrink-0" aria-hidden="true" />}
+                      </button>
+                      <AboutLinkButton icon={Info} label="About ESMira" onClick={() => setSettingsView('about')} />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : settingsView === 'about' ? (
+                <AboutEsmiraPanel serverVersion={serverVersion} />
+              ) : settingsView === 'notifications' ? (
+                <NotificationsPanel perm={notifPerm} onEnable={requestNotifications} />
+              ) : (
+                <ErrorReportPanel
+                  canSend={!!study}
+                  text={errorText}
+                  status={errorStatus}
+                  preview={buildErrorReport(errorText)}
+                  textSizeClass={textSizeClass}
+                  onChange={setErrorText}
+                  onSend={sendErrorReport}
+                  onReset={() => { setErrorStatus('idle'); setErrorText(''); }}
+                  onClose={closeSettings}
+                />
+              )}
             </motion.div>
           </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* About / Study information modal */}
@@ -908,7 +1202,16 @@ export default function App() {
                       <InfoRow label="Server url" value={serverRootUrl()} mono />
                       <InfoRow label="Joined at" value={joinedAt ? joinedAt.toLocaleString() : 'Not yet joined'} />
                       <InfoRow label="Completed questionnaires" value={completedCount} />
-                      <InfoRow label="Next notification" value={<span className="inline-flex items-center gap-1 text-on-surface-variant"><Bell size={13} aria-hidden="true" /> Not scheduled</span>} />
+                      <InfoRow label="Next notification" value={
+                        <span className="inline-flex items-center gap-1 text-on-surface-variant">
+                          <Bell size={13} aria-hidden="true" />
+                          {!study?.webPushEnabled
+                            ? 'Off for this study'
+                            : nextNotification
+                              ? new Date(nextNotification).toLocaleString()
+                              : 'Not scheduled'}
+                        </span>
+                      } />
                     </div>
                     {/* Detail navigation */}
                     <div className="px-3 pb-4 pt-1 flex flex-col">
@@ -1086,6 +1389,140 @@ function AboutLinkButton({ icon: Icon, label, onClick }: { icon: typeof FileText
       <span className="flex-1 font-semibold text-sm text-on-surface">{label}</span>
       <ChevronRight size={18} className="text-outline-variant shrink-0" aria-hidden="true" />
     </button>
+  );
+}
+
+/** About ESMira sub-panel: app identity, version, server, and project link. */
+function AboutEsmiraPanel({ serverVersion }: { serverVersion: number }) {
+  return (
+    <div className="p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <img src={`${import.meta.env.BASE_URL}esmira-logo.svg`} alt="" className="w-12 h-12 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-bold text-lg leading-none">ESMira</p>
+          <p className="text-xs text-on-surface-variant mt-1">Web participant interface</p>
+        </div>
+      </div>
+      <p className="text-sm text-on-surface-variant leading-relaxed">
+        ESMira is a tool for running longitudinal studies (ESM, AA, EMA, …). Studies are created
+        through an online interface, and participants can take part using iOS, Android, or a web browser.
+      </p>
+      <div>
+        <InfoRow label="App version" value={APP_VERSION} />
+        <InfoRow label="Server version" value={serverVersion} />
+        <InfoRow label="Server" value={serverRootUrl()} mono />
+      </div>
+      <a
+        href="https://github.com/KL-Psychological-Methodology/ESMira-web"
+        target="_blank"
+        rel="noreferrer noopener"
+        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+      >
+        <ExternalLink size={16} aria-hidden="true" /> ESMira project &amp; source code
+      </a>
+    </div>
+  );
+}
+
+/** Notifications troubleshooting sub-panel: current permission + guidance. */
+function NotificationsPanel({ perm, onEnable }: { perm: NotificationPermission | 'unsupported'; onEnable: () => void }) {
+  const status = perm === 'granted'
+    ? { icon: <CheckCircle size={18} aria-hidden="true" />, text: 'Notifications are enabled.', cls: 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400' }
+    : perm === 'denied'
+      ? { icon: <BellOff size={18} aria-hidden="true" />, text: 'Notifications are blocked for this site.', cls: 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400' }
+      : perm === 'unsupported'
+        ? { icon: <Bell size={18} aria-hidden="true" />, text: 'This browser does not support notifications.', cls: 'bg-surface-container-high text-on-surface-variant' }
+        : { icon: <Bell size={18} aria-hidden="true" />, text: 'Notifications are not enabled yet.', cls: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400' };
+  return (
+    <div className="p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <span className={cn('p-2 rounded-full shrink-0', status.cls)}>{status.icon}</span>
+        <p className="text-sm font-semibold">{status.text}</p>
+      </div>
+      {perm === 'default' && (
+        <button onClick={onEnable}
+          className="self-start inline-flex items-center gap-2 bg-primary text-on-primary font-bold px-4 py-2.5 rounded-full active:scale-95 hover:brightness-110 transition-all">
+          <BellRing size={16} aria-hidden="true" /> Enable notifications
+        </button>
+      )}
+      {perm === 'denied' && (
+        <p className="text-sm text-on-surface-variant">
+          You've blocked notifications. To turn them back on, open your browser's site settings for this
+          page, allow notifications, then reload.
+        </p>
+      )}
+      <div>
+        <p className="font-semibold text-sm mb-2">If reminders aren't arriving:</p>
+        <ul className="list-disc pl-5 text-sm text-on-surface-variant space-y-1.5">
+          <li>Install this app to your home screen so it can run in the background.</li>
+          <li>Allow notifications for this site in your browser settings.</li>
+          <li>Check your device's system notification settings for your browser or this app.</li>
+          <li>On Android, exclude your browser from battery optimisation so reminders aren't delayed.</li>
+          <li>Open the app regularly — browsers limit background activity, so some reminders can be delayed.</li>
+        </ul>
+      </div>
+      <p className="text-xs text-on-surface-variant">
+        For the most reliable reminders, the ESMira iOS or Android app is recommended.
+      </p>
+    </div>
+  );
+}
+
+/** Send error report sub-panel: optional note + a transparent diagnostics preview. */
+function ErrorReportPanel({ canSend, text, status, preview, textSizeClass, onChange, onSend, onReset, onClose }: {
+  canSend: boolean;
+  text: string;
+  status: 'idle' | 'sending' | 'sent' | 'error';
+  preview: string;
+  textSizeClass: string;
+  onChange: (v: string) => void;
+  onSend: () => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  if (status === 'sent') {
+    return (
+      <div className="p-5 flex flex-col items-center text-center gap-3 py-8 overflow-y-auto custom-scrollbar">
+        <span className="p-3 rounded-full bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400"><CheckCircle size={28} aria-hidden="true" /></span>
+        <p className="font-semibold">Report sent</p>
+        <p className="text-sm text-on-surface-variant">Thank you — your error report has reached the research team.</p>
+        <div className="flex gap-2 mt-2">
+          <button onClick={onReset} className="px-4 py-2 rounded-full bg-surface-container-high text-on-surface font-semibold text-sm active:scale-95 transition-all">Send another</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-full bg-primary text-on-primary font-semibold text-sm active:scale-95 hover:brightness-110 transition-all">Close</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="p-5 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+      <p className="text-sm text-on-surface-variant">
+        Something not working? Send a report to the research team. We include basic technical details
+        about your device and any recent app errors to help diagnose the problem — your survey answers
+        are never included.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        rows={4}
+        disabled={status === 'sending'}
+        placeholder="Describe what went wrong (optional)…"
+        aria-label="Describe the problem"
+        className={cn('w-full resize-none rounded-xl bg-surface-container-high px-4 py-3 text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-60', textSizeClass)}
+      />
+      <details className="text-sm">
+        <summary className="cursor-pointer font-semibold text-on-surface-variant select-none">What's included in the report</summary>
+        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-container-high p-3 text-xs text-on-surface-variant font-mono">{preview}</pre>
+      </details>
+      {!canSend && <p className="text-sm text-amber-600 dark:text-amber-400">No study is loaded, so the report can't be sent right now.</p>}
+      {status === 'error' && <p className="text-sm text-red-600 dark:text-red-400">Couldn't send your report. Please check your connection and try again.</p>}
+      <button
+        onClick={onSend}
+        disabled={!canSend || status === 'sending'}
+        className="w-full flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-40 disabled:active:scale-100"
+      >
+        {status === 'sending' ? 'Sending…' : <><Bug size={18} aria-hidden="true" /> Send report</>}
+      </button>
+    </div>
   );
 }
 

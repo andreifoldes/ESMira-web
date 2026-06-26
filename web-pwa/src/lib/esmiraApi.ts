@@ -26,6 +26,8 @@ export function serverRootUrl(): string {
 export interface FetchedStudy {
   study: EsmiraStudy;
   serverVersion: number;
+  /** Server VAPID public key for web push (only when a study has push enabled). */
+  vapidPublicKey?: string;
 }
 
 export async function fetchStudy(accessKey: string, studyId?: number): Promise<FetchedStudy> {
@@ -38,7 +40,56 @@ export async function fetchStudy(accessKey: string, studyId?: number): Promise<F
   const study = studyId != null
     ? env.dataset.find(s => s.id === studyId) ?? env.dataset[0]
     : env.dataset[0];
-  return { study, serverVersion: env.serverVersion };
+  return { study, serverVersion: env.serverVersion, vapidPublicKey: env.vapidPublicKey };
+}
+
+/**
+ * Register this device's web-push subscription with the server, so the backend
+ * scheduler can send the participant's questionnaire reminders even when the PWA
+ * is closed. Mirrors the other POST endpoints; the subscription is the browser's
+ * `PushSubscription` serialized as JSON ({ endpoint, keys: { p256dh, auth } }).
+ */
+export async function subscribeToPush(args: {
+  study: EsmiraStudy;
+  serverVersion: number;
+  userId: string;
+  subscription: PushSubscriptionJSON;
+}): Promise<boolean> {
+  const resp = await fetch(`${API_ROOT}api/push_subscribe.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: args.userId,
+      studyId: args.study.id,
+      serverVersion: args.serverVersion,
+      subscription: args.subscription,
+      // So the server can schedule "08:00" in the participant's local time, not its own.
+      tzOffset: new Date().getTimezoneOffset(),
+    }),
+  });
+  if (!resp.ok) throw new Error(`push_subscribe.php returned ${resp.status}`);
+  const env = await resp.json();
+  if (!env.success) throw new Error(env.error || 'Push subscription rejected');
+  return true;
+}
+
+/**
+ * Ask the server for this participant's next scheduled reminder time (UTC ms),
+ * computed from the study schedule. Returns null if none is upcoming or push is
+ * off. Best-effort: never throws (purely informational for the Details panel).
+ */
+export async function fetchNextNotification(studyId: number, userId: string): Promise<number | null> {
+  try {
+    const resp = await fetch(
+      `${API_ROOT}api/push_status.php?studyId=${studyId}&userId=${encodeURIComponent(userId)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    if (!resp.ok) return null;
+    const env = await resp.json();
+    return env?.success ? (env.dataset?.nextNotification ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -406,6 +457,66 @@ export async function flushSubmitQueue(): Promise<void> {
 
 export function pendingSubmitCount(): number {
   return loadQueue().length;
+}
+
+// ── Client error log (powers "Send error report") ───────────────
+// Capture uncaught errors / promise rejections into a small capped ring buffer
+// in localStorage so a participant can forward them to the research team — the
+// web equivalent of the native app's "Forward error report".
+
+const ERROR_LOG_KEY = 'esmira_error_log';
+const ERROR_LOG_MAX = 30;
+
+export interface ClientErrorEntry {
+  time: number;
+  message: string;
+}
+
+/** Read the captured client error log, oldest first. */
+export function loadErrorLog(): ClientErrorEntry[] {
+  try {
+    const raw = localStorage.getItem(ERROR_LOG_KEY);
+    return raw ? (JSON.parse(raw) as ClientErrorEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushErrorLog(message: string): void {
+  try {
+    const list = loadErrorLog();
+    list.push({ time: Date.now(), message: message.slice(0, 500) });
+    localStorage.setItem(ERROR_LOG_KEY, JSON.stringify(list.slice(-ERROR_LOG_MAX)));
+  } catch {
+    /* storage full/unavailable */
+  }
+}
+
+/** Clear the captured client error log (e.g. after a report is sent). */
+export function clearErrorLog(): void {
+  try {
+    localStorage.removeItem(ERROR_LOG_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Capture uncaught errors and unhandled rejections into the local log.
+ *  Returns an uninstaller (so it cleans up cleanly under StrictMode remounts). */
+export function installErrorLogger(): () => void {
+  const onError = (e: ErrorEvent) => {
+    pushErrorLog(`${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}:${e.colno}` : ''}`);
+  };
+  const onRejection = (e: PromiseRejectionEvent) => {
+    const r = e.reason;
+    pushErrorLog(`Unhandled rejection: ${r instanceof Error ? `${r.message}` : String(r)}`);
+  };
+  window.addEventListener('error', onError);
+  window.addEventListener('unhandledrejection', onRejection);
+  return () => {
+    window.removeEventListener('error', onError);
+    window.removeEventListener('unhandledrejection', onRejection);
+  };
 }
 
 /** Wire up automatic flushing on reconnect / tab visibility. */

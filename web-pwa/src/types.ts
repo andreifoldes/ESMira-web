@@ -140,6 +140,10 @@ export interface EsmiraStudy {
   /** When true (set by the researcher in the designer), first-time web participants
    *  see a tutorial overview with optional no-submit practice runs before starting. */
   enableTutorialMode?: boolean;
+  /** When true, the researcher has enabled server-sent web push reminders for PWA
+   *  participants. The client requests notification permission after consent and
+   *  registers a push subscription; the server schedules/sends the reminders. */
+  webPushEnabled?: boolean;
   questionnaires: EsmiraQuestionnaire[];
 }
 
@@ -148,4 +152,7 @@ export interface StudiesEnvelope {
   serverVersion: number;
   dataset: EsmiraStudy[];
   error?: string;
+  /** Base64url VAPID public key, present only when a study in the set has web push
+   *  enabled. The client passes it to `pushManager.subscribe(applicationServerKey)`. */
+  vapidPublicKey?: string;
 }

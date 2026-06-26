@@ -712,5 +712,7 @@
 	"use_legacy_scheduling": "Use legacy scheduling",
 	"use_legacy_scheduling_info": "Use an older scheduling logic to determine day offsets. This logic is not dependent full days, but on 24-hour periods since the study was joined (dependent on time of day).",
 	"enable_tutorial_mode": "Enable tutorial mode (web)",
-	"enable_tutorial_mode_info": "On their first visit, web participants see an overview of the study's questionnaires and can take a no-submit practice run before starting."
+	"enable_tutorial_mode_info": "On their first visit, web participants see an overview of the study's questionnaires and can take a no-submit practice run before starting.",
+	"enable_web_push": "Enable web push reminders (web)",
+	"enable_web_push_info": "After consenting, web participants are asked to allow notifications. The server then sends questionnaire reminders (using each questionnaire's schedule and notification message) even when the app is closed. Requires a VAPID key configured on the server."
 }

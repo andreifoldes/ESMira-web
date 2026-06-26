@@ -112,6 +112,10 @@ module.exports = {
 					to: path.resolve(DIST, 'api')
 				},
 				{
+					from: path.resolve(SRC, 'cli'),
+					to: path.resolve(DIST, 'cli')
+				},
+				{
 					from: path.resolve(SRC, '.htaccess'),
 					to: path.resolve(DIST)
 				},

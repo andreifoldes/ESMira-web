@@ -124,6 +124,18 @@ class PathsFS {
 	static function folderUserData(int $studyId): string {
 		return self::folderStudies() . "$studyId/.userdata/";
 	}
+
+	static function folderPushSubscriptions(int $studyId): string {
+		return self::folderStudies() . "$studyId/.push_subscriptions/";
+	}
+
+	static function filePushSubscription(int $studyId, string $userId): string {
+		return self::folderPushSubscriptions($studyId) . Paths::makeUrlFriendly($userId);
+	}
+
+	static function filePushState(int $studyId, string $userId): string {
+		return self::folderPushSubscriptions($studyId) . Paths::makeUrlFriendly($userId) . '.state';
+	}
 	
 	static function folderRewardCodes(int $studyId): string {
 		return self::folderStudies() . "$studyId/.reward_codes/";

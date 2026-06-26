@@ -19,5 +19,7 @@
     "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  "comment": "src/sw.ts is typechecked separately via tsconfig.worker.json (WebWorker lib, not DOM).",
+  "exclude": ["src/sw.ts"]
 }

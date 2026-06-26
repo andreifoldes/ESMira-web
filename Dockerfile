@@ -7,13 +7,27 @@
 
 FROM php:8.3.10-apache
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
-RUN install-php-extensions zip
+# gmp + mbstring are required by minishlink/web-push (VAPID signing + encryption).
+RUN install-php-extensions zip gmp mbstring
 
 #RUN apt-get update
 #RUN apt-get install -y php8.0-zip
 
 # Copy app files from the app directory.
 COPY --chown=www-data:www-data ./dist /var/www/html
+
+# Install the backend's Composer dependencies (web push) into backend/vendor,
+# which backend/autoload.php picks up. composer.json ships in dist/backend.
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+RUN cd /var/www/html/backend \
+	&& composer update --no-dev --no-interaction --optimize-autoloader \
+	&& chown -R www-data:www-data /var/www/html/backend/vendor
+
+# Cron: run the web-push sender every minute (see cli/push_send_due.php).
+RUN apt-get update && apt-get install -y --no-install-recommends cron && rm -rf /var/lib/apt/lists/*
+RUN printf '* * * * * www-data php /var/www/html/cli/push_send_due.php >> /var/log/esmira_push.log 2>&1\n' > /etc/cron.d/esmira-push \
+	&& chmod 0644 /etc/cron.d/esmira-push \
+	&& touch /var/log/esmira_push.log && chown www-data:www-data /var/log/esmira_push.log
 
 # Enable mod rewrite
 RUN a2enmod rewrite & a2enmod md & a2enmod ssl

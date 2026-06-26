@@ -34,6 +34,9 @@ export class Study extends DataStructure implements TranslatableRootInterface {
 	public additionalDaysActive = this.primitive<number>("additionalDaysActive", 0)
 	public legacyScheduling = this.primitive<boolean>("legacyScheduling", false)
 	public enableTutorialMode = this.primitive<boolean>("enableTutorialMode", false)
+	// When enabled, the participant PWA registers a web-push subscription after
+	// consent and the server sends questionnaire reminders (see api/push_subscribe.php).
+	public webPushEnabled = this.primitive<boolean>("webPushEnabled", false)
 
 	public accessKeys = this.primitiveArray<string>("accessKeys")
 	public langCodes = this.primitiveArray<string>("langCodes", ["en"])

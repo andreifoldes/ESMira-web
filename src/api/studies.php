@@ -38,4 +38,13 @@ try {
     return;
 }
 
-echo JsonOutput::successString('[' .implode(',', $studiesJson) .']');
+$dataset = '[' .implode(',', $studiesJson) .']';
+
+// When a VAPID public key is configured, hand it to the PWA so it can register a
+// web-push subscription (it only does so for studies with webPushEnabled). The
+// public key is safe to expose.
+$vapidPublicKey = Configs::get('vapid_public_key');
+if(!empty($vapidPublicKey))
+	echo JsonOutput::successStringWithExtra($dataset, ['vapidPublicKey' => $vapidPublicKey]);
+else
+	echo JsonOutput::successString($dataset);

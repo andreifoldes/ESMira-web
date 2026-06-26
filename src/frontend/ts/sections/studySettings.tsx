@@ -147,6 +147,16 @@ export class Content extends SectionContent {
 							</label>
 						</div>
 				}),
+				DashElement("vertical", {
+					content:
+						<div class="vAlignCenter">
+							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(study.webPushEnabled)} />
+								<span>{Lang.get('enable_web_push')}</span>
+								<small>{Lang.get('enable_web_push_info')}</small>
+							</label>
+						</div>
+				}),
 				this.hasFallbackUrls && DashElement(null, {
 					content:
 						<div>
