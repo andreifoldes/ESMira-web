@@ -56,6 +56,22 @@ export class Content extends SectionContent {
 				{ObservableLangChooser(this.getStudyOrThrow())}
 			</div>
 
+			{study.enableTutorialMode.get() &&
+				<div class="fakeLabel spacingTop line">
+					<h3 class="center">{Lang.get("tutorial")}</h3>
+					<label class="line">
+						<small>{Lang.getWithColon("tutorial_offer_prompt")} ({Lang.get("can_be_left_empty")})</small>
+						<textarea {...BindObservable(study.tutorialOffer)}></textarea>
+						{ObservableLangChooser(this.getStudyOrThrow())}
+					</label>
+					<label class="line spacingTop">
+						<small>{Lang.getWithColon("tutorial_intro_text")} ({Lang.get("can_be_left_empty")})</small>
+						<textarea {...BindObservable(study.tutorialIntro)}></textarea>
+						{ObservableLangChooser(this.getStudyOrThrow())}
+					</label>
+				</div>
+			}
+
 			<div class="fakeLabel spacingTop line">
 				<small>{Lang.get("faqs")} ({Lang.get("can_be_left_empty")}):</small>
 				{RichText(study.faq)}

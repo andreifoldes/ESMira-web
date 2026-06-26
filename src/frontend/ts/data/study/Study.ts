@@ -53,6 +53,11 @@ export class Study extends DataStructure implements TranslatableRootInterface {
 	public studyTag = this.translatable("studyTag", "")
 	public informedConsentForm = this.translatable("informedConsentForm", "")
 	public postInstallInstructions = this.translatable("postInstallInstructions", "")
+	// Web PWA tutorial: the yes/no offer prompt and the intro shown when the tour
+	// begins. Empty = the PWA uses its built-in default text. (Shown in the
+	// Descriptions editor only when enableTutorialMode is on.)
+	public tutorialOffer = this.translatable("tutorialOffer", "")
+	public tutorialIntro = this.translatable("tutorialIntro", "")
 	public chooseUsernameInstructions = this.translatable("chooseUsernameInstructions", "")
 	public webQuestionnaireCompletedInstructions = this.translatable("webQuestionnaireCompletedInstructions", "")
 	public webInstallInstructions = this.translatable("webInstallInstructions", "")
