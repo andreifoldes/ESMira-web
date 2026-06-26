@@ -65,6 +65,20 @@ interface PushPayload {
   body?: string;
   tag?: string;
   url?: string;
+  /** studyId/userId the server stamped in, so we can report delivery + click receipts. */
+  sid?: number;
+  uid?: string;
+}
+
+/** Report a push funnel event ('received'/'clicked') to the backend. Best-effort. */
+function reportPushEvent(sid: number | undefined, uid: string | undefined, event: string): Promise<unknown> {
+  if (!sid || !uid) return Promise.resolve();
+  return fetch('/esmira/api/push_event.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ studyId: sid, userId: uid, event }),
+    keepalive: true,
+  }).catch(() => undefined);
 }
 
 self.addEventListener('push', (event: PushEvent) => {
@@ -78,23 +92,28 @@ self.addEventListener('push', (event: PushEvent) => {
   }
   const title = payload.title || 'ESMira';
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: payload.body ?? '',
-      icon: '/pwa/pwa-192x192.png',
-      badge: '/pwa/pwa-192x192.png',
-      tag: payload.tag,
-      data: { url: payload.url || '/pwa/' },
-    }),
+    Promise.all([
+      self.registration.showNotification(title, {
+        body: payload.body ?? '',
+        icon: '/pwa/pwa-192x192.png',
+        badge: '/pwa/pwa-192x192.png',
+        tag: payload.tag,
+        data: { url: payload.url || '/pwa/', sid: payload.sid, uid: payload.uid },
+      }),
+      // The notification actually reached this device — record "arrived".
+      reportPushEvent(payload.sid, payload.uid, 'received'),
+    ]),
   );
 });
 
 // Tapping a reminder focuses the already-open app, or opens it at the study.
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
-  const data = event.notification.data as { url?: string } | undefined;
+  const data = event.notification.data as { url?: string; sid?: number; uid?: string } | undefined;
   const targetUrl = data?.url || '/pwa/';
   event.waitUntil(
     (async () => {
+      await reportPushEvent(data?.sid, data?.uid, 'clicked');
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of wins) {
         if (client.url.includes('/pwa/')) return (client as WindowClient).focus();

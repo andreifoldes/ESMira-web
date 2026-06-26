@@ -23,7 +23,7 @@ import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
-  subscribeToPush, fetchNextNotification,
+  subscribeToPush, fetchNextNotification, logEvent, reportClientInfo,
   startWearableConnect, fetchWearableStatus, disconnectWearable,
 } from './lib/esmiraApi';
 import type { UploadProtocolEntry } from './lib/esmiraApi';
@@ -317,8 +317,17 @@ export default function App() {
   }, []);
 
   // ── Tutorial-mode helpers ────────────────────────────────────
+  // Record tutorial-engagement events in the participant's event stream
+  // (tutorial_offered / accepted / declined / completed) for the data export.
+  const logTutorialEvent = useCallback((eventType: string) => {
+    if (!study) return;
+    const key = accessKey || study.accessKeys?.[0] || '';
+    void logEvent({ study, serverVersion, userId: userIdRef.current, accessKey: key, eventType });
+  }, [study, serverVersion, accessKey]);
+
   const pushTutorialIntro = useCallback((s: EsmiraStudy) => {
-    pushBot("Here's a quick tour. Below is every questionnaire this study uses — you can try a practice run of any of them (nothing you enter is saved). When you're ready, continue to the study.");
+    pushBot(s.tutorialIntro?.trim()
+      || "Here's a quick tour. Below is every questionnaire this study uses — you can try a practice run of any of them (nothing you enter is saved). When you're ready, continue to the study.");
     if (s.postInstallInstructions) pushBot(s.postInstallInstructions);
   }, [pushBot]);
 
@@ -345,31 +354,35 @@ export default function App() {
       return;
     }
     if (tutorialParam !== '0' && s.enableTutorialMode && !localStorage.getItem(tutorialSeenKey(s.id))) {
-      pushBot('Would you like a quick guided tour of the questionnaires before you start?');
+      pushBot(s.tutorialOffer?.trim() || 'Would you like a quick guided tour of the questionnaires before you start?');
+      logTutorialEvent('tutorial_offered');
       setPhase('tutorialOffer');
       return;
     }
     enterList(s);
-  }, [tutorialParam, pushTutorialIntro, pushBot, enterList]);
+  }, [tutorialParam, pushTutorialIntro, pushBot, enterList, logTutorialEvent]);
 
   const acceptTutorial = useCallback(() => {
     if (!study) return;
     pushUser('Yes, show me');
+    logTutorialEvent('tutorial_accepted');
     pushTutorialIntro(study);
     setPhase('tutorial');
-  }, [study, pushTutorialIntro, pushUser]);
+  }, [study, pushTutorialIntro, pushUser, logTutorialEvent]);
 
   const declineTutorial = useCallback(() => {
     if (!study) return;
     pushUser('No thanks');
+    logTutorialEvent('tutorial_declined');
     localStorage.setItem(tutorialSeenKey(study.id), '1');
     enterList(study, 'No problem —');
-  }, [study, enterList, pushUser]);
+  }, [study, enterList, pushUser, logTutorialEvent]);
 
   const finishTutorial = useCallback(() => {
     if (study) localStorage.setItem(tutorialSeenKey(study.id), '1');
+    logTutorialEvent('tutorial_completed');
     enterList(study!, 'Great — that\'s the tour done.');
-  }, [study, enterList]);
+  }, [study, enterList, logTutorialEvent]);
 
   // Ensure the enrollment anchor exists once the study + user are known (backstop for
   // any path into the list that doesn't go through enterList), and re-evaluate
@@ -377,6 +390,14 @@ export default function App() {
   useEffect(() => {
     if (study && userId && enrolledAt == null) setEnrolledAt(ensureEnrollment(study.id, userId, Date.now()));
   }, [study, userId, enrolledAt]);
+  // Report install/device telemetry once per load (for the researcher's Push panel).
+  const clientInfoSentRef = useRef(false);
+  useEffect(() => {
+    if (study && userId && !clientInfoSentRef.current) {
+      clientInfoSentRef.current = true;
+      void reportClientInfo(study.id, userId);
+    }
+  }, [study, userId]);
   useEffect(() => {
     const id = setInterval(() => setNowTick((t) => t + 1), 60000);
     return () => clearInterval(id);

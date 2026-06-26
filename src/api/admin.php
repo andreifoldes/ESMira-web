@@ -72,6 +72,7 @@ $classIndex = [
 	'CheckChanged' => 'backend\admin\features\writePermission\CheckChanged',
 	'BackupStudy' => 'backend\admin\features\writePermission\BackupStudy',
 	'GetPushInfo' => 'backend\admin\features\writePermission\GetPushInfo',
+	'GetPushStats' => 'backend\admin\features\writePermission\GetPushStats',
 	'SendTestPush' => 'backend\admin\features\writePermission\SendTestPush',
 	'SaveStudy' => 'backend\admin\features\writePermission\SaveStudy',
 	'MarkStudyAsUpdated' => 'backend\admin\features\writePermission\MarkStudyAsUpdated',

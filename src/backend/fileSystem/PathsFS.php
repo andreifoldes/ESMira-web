@@ -137,6 +137,18 @@ class PathsFS {
 		return self::folderPushSubscriptions($studyId) . Paths::makeUrlFriendly($userId) . '.state';
 	}
 
+	/** Append-only JSONL of push funnel events (sent/failed/received/clicked) for a study. */
+	static function filePushEvents(int $studyId): string {
+		return self::folderStudies() . "$studyId/.push_events";
+	}
+	/** Per-participant client telemetry (installed-as-PWA + device class); latest wins. */
+	static function folderClientInfo(int $studyId): string {
+		return self::folderStudies() . "$studyId/.client_info/";
+	}
+	static function fileClientInfo(int $studyId, string $userId): string {
+		return self::folderClientInfo($studyId) . Paths::makeUrlFriendly($userId);
+	}
+
 	// --- Wearables (Fitbit / Withings / Oura) data sharing. Everything lives under
 	// the study folder so it is captured by snapshots/backups, mirroring the push
 	// subscription layout above. `provider` is a short ascii slug (fitbit/withings/oura).

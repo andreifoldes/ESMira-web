@@ -86,6 +86,32 @@ export async function subscribeToPush(args: {
 }
 
 /**
+ * Best-effort telemetry for the researcher's Push panel: report whether this session is
+ * running installed-to-home-screen (display-mode standalone) vs a browser tab, plus a
+ * coarse device class. Latest report per participant wins server-side. Aggregate-only.
+ */
+export async function reportClientInfo(studyId: number, userId: string): Promise<void> {
+  try {
+    const mm = typeof matchMedia !== 'undefined' ? matchMedia : null;
+    const installed =
+      (mm?.('(display-mode: standalone)').matches ?? false) ||
+      // iOS Safari home-screen apps:
+      (navigator as unknown as { standalone?: boolean }).standalone === true;
+    const uaMobile = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile;
+    const coarse = mm?.('(pointer: coarse)').matches ?? false;
+    const minSide = Math.min(screen?.width ?? 0, screen?.height ?? 0);
+    const device = coarse ? (minSide >= 600 ? 'tablet' : 'mobile') : (uaMobile ? 'mobile' : 'desktop');
+    await fetch(`${API_ROOT}api/client_info.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studyId, userId, installed, device }),
+    });
+  } catch {
+    /* best-effort — telemetry must not affect the participant */
+  }
+}
+
+/**
  * Ask the server for this participant's next scheduled reminder time (UTC ms),
  * computed from the study schedule. Returns null if none is upcoming or push is
  * off. Best-effort: never throws (purely informational for the Details panel).
@@ -101,6 +127,51 @@ export async function fetchNextNotification(studyId: number, userId: string): Pr
     return env?.success ? (env.dataset?.nextNotification ?? null) : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Record a study event (e.g. tutorial engagement) in the participant's event
+ * stream. Sent as an events-only dataset to api/datasets.php — the same pipeline
+ * the `joined` event uses — so it lands in the study's events.csv export. The
+ * backend accepts any safe eventType string. Best-effort: never throws/blocks.
+ */
+export async function logEvent(args: {
+  study: EsmiraStudy;
+  serverVersion: number;
+  userId: string;
+  accessKey: string;
+  eventType: string;
+}): Promise<void> {
+  const now = Date.now();
+  const payload = {
+    userId: args.userId,
+    appType: 'Web',
+    appVersion: String(args.serverVersion),
+    serverVersion: args.serverVersion,
+    dataset: [{
+      userId: args.userId,
+      studyId: args.study.id,
+      studyVersion: args.study.version ?? 0,
+      studySubVersion: args.study.subVersion ?? 0,
+      studyLang: args.study.lang ?? 'en',
+      accessKey: args.accessKey,
+      dataSetId: 0,
+      questionnaireName: null,
+      questionnaireInternalId: null,
+      eventType: args.eventType,
+      responseTime: now,
+      responses: {},
+    }],
+  };
+  try {
+    await fetch(`${API_ROOT}api/datasets.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    /* best-effort — tutorial telemetry must not block onboarding */
   }
 }
 

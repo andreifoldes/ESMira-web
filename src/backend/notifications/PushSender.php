@@ -45,6 +45,7 @@ class PushSender {
 
 		$queued = 0;
 		$studiesProcessed = 0;
+		$endpointMeta = []; // push endpoint -> ['s'=>studyId, 'u'=>userId], for delivery logging
 
 		foreach(self::listStudyIds() as $studyId) {
 			try {
@@ -107,7 +108,10 @@ class PushSender {
 							'title' => $occ['title'],
 							'body'  => $occ['body'],
 							'url'   => '/pwa/',
+							'sid'   => $studyId, // so the SW can report received/clicked receipts
+							'uid'   => $userId,
 						]));
+						$endpointMeta[$data['subscription']['endpoint']] = ['s' => $studyId, 'u' => $userId];
 						$queued++;
 					}
 					catch(Throwable $e) {
@@ -121,10 +125,15 @@ class PushSender {
 			}
 		}
 
-		// Deliver, and prune subscriptions the push service reports as gone (404/410).
+		// Deliver, log the funnel "sent/failed" per message, and prune subscriptions the
+		// push service reports as gone (404/410).
 		foreach($webPush->flush() as $report) {
+			$endpoint = $report->getEndpoint();
+			$meta = $endpointMeta[$endpoint] ?? null;
+			if($meta !== null)
+				PushEvents::log($meta['s'], $meta['u'], $report->isSuccess() ? 'sent' : 'failed');
 			if(!$report->isSuccess() && $report->isSubscriptionExpired())
-				self::removeSubscriptionByEndpoint($report->getEndpoint());
+				self::removeSubscriptionByEndpoint($endpoint);
 		}
 
 		return ['studies' => $studiesProcessed, 'queued' => $queued];
@@ -166,6 +175,7 @@ class PushSender {
 
 		$folder = PathsFS::folderPushSubscriptions($studyId);
 		$queued = 0;
+		$endpointUser = []; // endpoint -> userId, for delivery logging
 		if(is_dir($folder)) {
 			foreach(array_diff(scandir($folder), ['.', '..']) as $entry) {
 				if(self::isStateFile($entry))
@@ -173,6 +183,7 @@ class PushSender {
 				$data = json_decode(@file_get_contents($folder . $entry), true);
 				if(!is_array($data) || empty($data['subscription']['endpoint']))
 					continue;
+				$userId = (string) ($data['userId'] ?? $entry);
 				try {
 					$sub = Subscription::create([
 						'endpoint' => $data['subscription']['endpoint'],
@@ -185,7 +196,10 @@ class PushSender {
 						'title' => $title,
 						'body'  => $body,
 						'url'   => '/pwa/',
+						'sid'   => $studyId,
+						'uid'   => $userId,
 					]));
+					$endpointUser[$data['subscription']['endpoint']] = $userId;
 					$queued++;
 				}
 				catch(Throwable $e) { /* malformed — skip */ }
@@ -203,6 +217,7 @@ class PushSender {
 				'expired' => $report->isSubscriptionExpired(),
 				'reason'  => $ok ? '' : $report->getReason(),
 			];
+			PushEvents::log($studyId, $endpointUser[$report->getEndpoint()] ?? '', $ok ? 'sent' : 'failed');
 			if(!$ok && $report->isSubscriptionExpired())
 				self::removeSubscriptionByEndpoint($report->getEndpoint());
 		}
