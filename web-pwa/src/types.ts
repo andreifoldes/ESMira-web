@@ -144,6 +144,12 @@ export interface EsmiraStudy {
    *  participants. The client requests notification permission after consent and
    *  registers a push subscription; the server schedules/sends the reminders. */
   webPushEnabled?: boolean;
+  /** When true, the researcher has enabled wearable data sharing. The PWA offers
+   *  the intersection of `wearablesProviders` and the server's `wearableProviders`
+   *  (those with OAuth credentials configured) as connectable devices. */
+  wearablesEnabled?: boolean;
+  /** Provider slugs the researcher offers for this study (e.g. ["fitbit","oura"]). */
+  wearablesProviders?: string[];
   questionnaires: EsmiraQuestionnaire[];
 }
 
@@ -155,4 +161,14 @@ export interface StudiesEnvelope {
   /** Base64url VAPID public key, present only when a study in the set has web push
    *  enabled. The client passes it to `pushManager.subscribe(applicationServerKey)`. */
   vapidPublicKey?: string;
+  /** Wearable providers with OAuth credentials configured on the server. The PWA only
+   *  offers those that are also listed in a study's `wearablesProviders`. */
+  wearableProviders?: string[];
+}
+
+/** A connected wearable as reported by api/wearables_status.php. */
+export interface WearableStatus {
+  provider: string;
+  /** UTC ms of the last day the server synced for this provider, or null if none yet. */
+  lastSync: number | null;
 }

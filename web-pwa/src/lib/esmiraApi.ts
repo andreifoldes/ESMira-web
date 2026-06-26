@@ -9,7 +9,7 @@
  * CreateDataSet::prepare(). We only add a `joined` event on first submission.
  */
 
-import type { EsmiraStudy, PreloadedQuestion, StudiesEnvelope } from '../types';
+import type { EsmiraStudy, PreloadedQuestion, StudiesEnvelope, WearableStatus } from '../types';
 
 /** API root derived from the served base path ('/esmira/pwa/' -> '/esmira/'). */
 const API_ROOT = (import.meta.env.BASE_URL || '/').replace(/pwa\/?$/, '');
@@ -28,6 +28,8 @@ export interface FetchedStudy {
   serverVersion: number;
   /** Server VAPID public key for web push (only when a study has push enabled). */
   vapidPublicKey?: string;
+  /** Wearable providers with credentials configured on the server. */
+  wearableProviders?: string[];
 }
 
 export async function fetchStudy(accessKey: string, studyId?: number): Promise<FetchedStudy> {
@@ -40,7 +42,12 @@ export async function fetchStudy(accessKey: string, studyId?: number): Promise<F
   const study = studyId != null
     ? env.dataset.find(s => s.id === studyId) ?? env.dataset[0]
     : env.dataset[0];
-  return { study, serverVersion: env.serverVersion, vapidPublicKey: env.vapidPublicKey };
+  return {
+    study,
+    serverVersion: env.serverVersion,
+    vapidPublicKey: env.vapidPublicKey,
+    wearableProviders: env.wearableProviders,
+  };
 }
 
 /**
@@ -90,6 +97,74 @@ export async function fetchNextNotification(studyId: number, userId: string): Pr
   } catch {
     return null;
   }
+}
+
+/**
+ * Start connecting a wearable: the server validates and returns the provider's OAuth
+ * authorization URL (carrying a single-use state). The caller then navigates the
+ * browser there. Mirrors the other POST endpoints.
+ */
+export async function startWearableConnect(args: {
+  study: EsmiraStudy;
+  serverVersion: number;
+  userId: string;
+  provider: string;
+}): Promise<string> {
+  const resp = await fetch(`${API_ROOT}api/wearables_connect.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: args.userId,
+      studyId: args.study.id,
+      serverVersion: args.serverVersion,
+      provider: args.provider,
+    }),
+  });
+  if (!resp.ok) throw new Error(`wearables_connect.php returned ${resp.status}`);
+  const env = await resp.json();
+  if (!env.success || !env.dataset?.authUrl) throw new Error(env.error || 'Could not start connection');
+  return env.dataset.authUrl as string;
+}
+
+/**
+ * Fetch the participant's connected wearables (+ last sync time). Best-effort: returns
+ * an empty list and never throws (purely informational for the Settings/Details panels).
+ */
+export async function fetchWearableStatus(studyId: number, userId: string): Promise<WearableStatus[]> {
+  try {
+    const resp = await fetch(
+      `${API_ROOT}api/wearables_status.php?studyId=${studyId}&userId=${encodeURIComponent(userId)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    if (!resp.ok) return [];
+    const env = await resp.json();
+    return env?.success ? (env.dataset?.providers ?? []) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Disconnect a wearable: removes the server-side token, data and sync cursor. */
+export async function disconnectWearable(args: {
+  study: EsmiraStudy;
+  serverVersion: number;
+  userId: string;
+  provider: string;
+}): Promise<boolean> {
+  const resp = await fetch(`${API_ROOT}api/wearables_disconnect.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: args.userId,
+      studyId: args.study.id,
+      serverVersion: args.serverVersion,
+      provider: args.provider,
+    }),
+  });
+  if (!resp.ok) throw new Error(`wearables_disconnect.php returned ${resp.status}`);
+  const env = await resp.json();
+  if (!env.success) throw new Error(env.error || 'Disconnect failed');
+  return true;
 }
 
 /**

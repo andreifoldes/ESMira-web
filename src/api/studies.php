@@ -4,6 +4,7 @@ use backend\Configs;
 use backend\exceptions\CriticalException;
 use backend\JsonOutput;
 use backend\Main;
+use backend\wearables\WearablesRegistry;
 
 require_once dirname(__FILE__, 2) .'/backend/autoload.php';
 
@@ -40,11 +41,20 @@ try {
 
 $dataset = '[' .implode(',', $studiesJson) .']';
 
-// When a VAPID public key is configured, hand it to the PWA so it can register a
-// web-push subscription (it only does so for studies with webPushEnabled). The
-// public key is safe to expose.
+// Extra top-level capabilities handed to the PWA alongside the studies:
+//  - vapidPublicKey: lets it register web push (only used for webPushEnabled studies).
+//  - wearableProviders: which wearable providers have server credentials configured, so
+//    the PWA only offers the intersection of these and a study's wearablesProviders.
+// Both are safe to expose publicly.
+$extra = [];
 $vapidPublicKey = Configs::get('vapid_public_key');
 if(!empty($vapidPublicKey))
-	echo JsonOutput::successStringWithExtra($dataset, ['vapidPublicKey' => $vapidPublicKey]);
+	$extra['vapidPublicKey'] = $vapidPublicKey;
+$wearableProviders = WearablesRegistry::configuredProviders();
+if(!empty($wearableProviders))
+	$extra['wearableProviders'] = $wearableProviders;
+
+if(!empty($extra))
+	echo JsonOutput::successStringWithExtra($dataset, $extra);
 else
 	echo JsonOutput::successString($dataset);

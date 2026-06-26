@@ -7,8 +7,10 @@
 
 FROM php:8.3.10-apache
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
-# gmp + mbstring are required by minishlink/web-push (VAPID signing + encryption).
-RUN install-php-extensions zip gmp mbstring
+# gmp + mbstring + curl are required by minishlink/web-push (VAPID signing,
+# payload encryption, and the HTTP client used to reach push services).
+# sodium encrypts stored wearable OAuth tokens at rest (backend/wearables/).
+RUN install-php-extensions zip gmp mbstring curl sodium
 
 #RUN apt-get update
 #RUN apt-get install -y php8.0-zip
@@ -28,6 +30,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends cron && rm -rf 
 RUN printf '* * * * * www-data php /var/www/html/cli/push_send_due.php >> /var/log/esmira_push.log 2>&1\n' > /etc/cron.d/esmira-push \
 	&& chmod 0644 /etc/cron.d/esmira-push \
 	&& touch /var/log/esmira_push.log && chown www-data:www-data /var/log/esmira_push.log
+
+# Cron: poll connected wearables once an hour (see cli/wearables_sync.php).
+RUN printf '0 * * * * www-data php /var/www/html/cli/wearables_sync.php >> /var/log/esmira_wearables.log 2>&1\n' > /etc/cron.d/esmira-wearables \
+	&& chmod 0644 /etc/cron.d/esmira-wearables \
+	&& touch /var/log/esmira_wearables.log && chown www-data:www-data /var/log/esmira_wearables.log
 
 # Enable mod rewrite
 RUN a2enmod rewrite & a2enmod md & a2enmod ssl

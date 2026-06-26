@@ -14,7 +14,7 @@ import {
   Settings, ClipboardList, Info, X, Grid, SkipForward, PlayCircle,
   Sun, Moon, Contrast, Type, Send, ChevronRight, ChevronLeft, CheckCircle, RotateCcw, LogOut,
   FileText, ShieldCheck, Bell, BellRing, BellOff, MessageSquare, UploadCloud, Clock, RefreshCw,
-  Download, Bug, ExternalLink,
+  Download, Bug, ExternalLink, Watch,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
@@ -24,12 +24,14 @@ import {
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
   subscribeToPush, fetchNextNotification,
+  startWearableConnect, fetchWearableStatus, disconnectWearable,
 } from './lib/esmiraApi';
 import type { UploadProtocolEntry } from './lib/esmiraApi';
 import { ensurePushSubscription, isPushSupported } from './lib/push';
-import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion } from './types';
+import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion, WearableStatus } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
 import { InstallPrompt } from './components/InstallPrompt';
+import { WearablesPanel } from './components/WearablesPanel';
 
 type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'enterKey';
 
@@ -38,6 +40,8 @@ type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tut
 const LAST_KEY_STORE = 'esmira_last_key';
 /** PWA package version, injected at build time (see vite.config.ts). */
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+/** Display names for wearable provider slugs (used in the Details panel). */
+const WEARABLE_LABEL: Record<string, string> = { fitbit: 'Fitbit', withings: 'Withings', oura: 'Oura Ring' };
 type TextSize = 'normal' | 'large' | 'xlarge' | 'xxlarge';
 
 interface ChatMsg {
@@ -206,13 +210,21 @@ export default function App() {
   const [gridMenuOpen, setGridMenuOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   // Settings modal nested navigation: appearance (main) + the app-level features.
-  const [settingsView, setSettingsView] = useState<'main' | 'about' | 'notifications' | 'errorReport'>('main');
+  const [settingsView, setSettingsView] = useState<'main' | 'about' | 'notifications' | 'errorReport' | 'wearables'>('main');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done' | 'error'>('idle');
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
   );
   // Server VAPID public key (present only when a study has web push enabled).
   const [vapidKey, setVapidKey] = useState<string | null>(null);
+  // Wearable providers with credentials configured on the server (from studies.php).
+  const [wearableProviders, setWearableProviders] = useState<string[]>([]);
+  // Connected wearables for this participant (+ last sync), from wearables_status.php.
+  const [wearableStatus, setWearableStatus] = useState<WearableStatus[]>([]);
+  // Provider whose connect/disconnect is in flight; disables its buttons.
+  const [wearableBusy, setWearableBusy] = useState<string | null>(null);
+  // Transient banner after returning from a provider OAuth flow ({provider, ok}).
+  const [wearableFlash, setWearableFlash] = useState<{ provider: string; ok: boolean } | null>(null);
   // Soft pre-prompt shown once after consent for push-enabled studies.
   const [pushPromptOpen, setPushPromptOpen] = useState(false);
   // Next scheduled reminder (UTC ms) shown in the Details panel; null = none/unknown.
@@ -293,12 +305,13 @@ export default function App() {
       return;
     }
     fetchStudy(effectiveKey, studyIdParam)
-      .then(({ study, serverVersion, vapidPublicKey }) => {
+      .then(({ study, serverVersion, vapidPublicKey, wearableProviders }) => {
         // Remember the code only once it actually loaded a study.
         localStorage.setItem(LAST_KEY_STORE, effectiveKey);
         setStudy(study);
         setServerVersion(serverVersion);
         setVapidKey(vapidPublicKey ?? null);
+        setWearableProviders(wearableProviders ?? []);
         // Assign/restore the stable user id (invite-link param > stored > random).
         setUserId(resolveUserId(study.id, params));
         const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
@@ -411,10 +424,11 @@ export default function App() {
     setUpdateStatus('updating');
     try {
       await flushSubmitQueue();
-      const { study: fresh, serverVersion: sv, vapidPublicKey } = await fetchStudy(effectiveKey, studyIdParam);
+      const { study: fresh, serverVersion: sv, vapidPublicKey, wearableProviders: wp } = await fetchStudy(effectiveKey, studyIdParam);
       setStudy(fresh);
       setServerVersion(sv);
       setVapidKey(vapidPublicKey ?? null);
+      setWearableProviders(wp ?? []);
       setUpdateStatus('done');
     } catch {
       setUpdateStatus('error');
@@ -475,6 +489,74 @@ export default function App() {
     void fetchNextNotification(study.id, userId).then((t) => { if (!cancelled) setNextNotification(t); });
     return () => { cancelled = true; };
   }, [aboutOpen, study, userId]);
+
+  // ── Wearables: offered = the study's providers that the server also has creds for ──
+  const offeredWearables = useMemo(
+    () => (study?.wearablesEnabled ? (study.wearablesProviders ?? []).filter((p) => wearableProviders.includes(p)) : []),
+    [study, wearableProviders],
+  );
+
+  const refreshWearableStatus = useCallback(async () => {
+    if (!study?.wearablesEnabled || !userId) { setWearableStatus([]); return; }
+    setWearableStatus(await fetchWearableStatus(study.id, userId));
+  }, [study, userId]);
+
+  const connectWearable = async (provider: string) => {
+    if (!study) return;
+    setWearableBusy(provider);
+    try {
+      const url = await startWearableConnect({ study, serverVersion, userId, provider });
+      window.location.href = url; // top-level navigation: providers forbid being framed
+    } catch {
+      setWearableBusy(null);
+      setWearableFlash({ provider, ok: false });
+    }
+  };
+
+  const onDisconnectWearable = async (provider: string) => {
+    if (!study) return;
+    setWearableBusy(provider);
+    try {
+      await disconnectWearable({ study, serverVersion, userId, provider });
+      await refreshWearableStatus();
+    } catch {
+      /* ignore — status stays as-is */
+    } finally {
+      setWearableBusy(null);
+    }
+  };
+
+  // Refresh the connection list whenever the wearables panel or the Details panel opens.
+  useEffect(() => {
+    if ((a11yOpen && settingsView === 'wearables') || (aboutOpen && study?.wearablesEnabled))
+      void refreshWearableStatus();
+  }, [a11yOpen, settingsView, aboutOpen, study, refreshWearableStatus]);
+
+  // Handle the return from a provider OAuth flow (?wearable=<p>&status=connected|error).
+  // The callback redirects the whole PWA here, so this runs once on a fresh mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const provider = params.get('wearable');
+    const status = params.get('status');
+    if (!provider || !status) return;
+    setWearableFlash({ provider, ok: status === 'connected' });
+    params.delete('wearable');
+    params.delete('status');
+    const qs = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+  }, []);
+
+  // After a successful return, once study/user are known, refresh the connection list.
+  useEffect(() => {
+    if (wearableFlash?.ok && study?.wearablesEnabled && userId) void refreshWearableStatus();
+  }, [wearableFlash, study, userId, refreshWearableStatus]);
+
+  // Auto-dismiss the wearables flash banner.
+  useEffect(() => {
+    if (!wearableFlash) return;
+    const t = setTimeout(() => setWearableFlash(null), 5000);
+    return () => clearTimeout(t);
+  }, [wearableFlash]);
 
   // ── Send error report: assemble diagnostics + forward to researchers ──
   // No survey answers are included — only the participant's note and technical
@@ -770,6 +852,17 @@ export default function App() {
       'flex flex-col h-screen bg-surface overflow-hidden transition-colors duration-300',
       dark && 'dark', highContrast && 'high-contrast',
     )}>
+      {/* Wearable connect/disconnect result toast (auto-dismisses). */}
+      {wearableFlash && (
+        <div role="status" className="fixed top-3 left-1/2 -translate-x-1/2 z-[120] max-w-[92%]">
+          <div className={cn('flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-semibold text-white',
+            wearableFlash.ok ? 'bg-green-600' : 'bg-red-600')}>
+            {wearableFlash.ok ? <CheckCircle size={16} aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
+            {(WEARABLE_LABEL[wearableFlash.provider] ?? wearableFlash.provider) + (wearableFlash.ok ? ' connected' : ' connection failed')}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header aria-label={study?.title ?? 'ESMira Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -1055,6 +1148,7 @@ export default function App() {
           const settingsTitle = settingsView === 'about' ? 'About ESMira'
             : settingsView === 'notifications' ? 'Notifications'
             : settingsView === 'errorReport' ? 'Send error report'
+            : settingsView === 'wearables' ? 'Connect wearables'
             : 'Settings';
           return (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
@@ -1110,6 +1204,9 @@ export default function App() {
                     <div className="flex flex-col">
                       <AboutLinkButton icon={Bug} label="Send error report" onClick={() => { setErrorStatus('idle'); setErrorText(''); setSettingsView('errorReport'); }} />
                       <AboutLinkButton icon={BellRing} label="Notifications not working?" onClick={() => { if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission); setSettingsView('notifications'); }} />
+                      {offeredWearables.length > 0 && (
+                        <AboutLinkButton icon={Watch} label="Connect wearables" onClick={() => setSettingsView('wearables')} />
+                      )}
                       <button onClick={updateStudies} disabled={updateStatus === 'updating'}
                         className="w-full flex items-center gap-3 px-2 py-3 rounded-xl hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors text-left disabled:opacity-70">
                         <span className="p-2 rounded-full bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant shrink-0"><Download size={18} aria-hidden="true" /></span>
@@ -1127,6 +1224,14 @@ export default function App() {
                 <AboutEsmiraPanel serverVersion={serverVersion} />
               ) : settingsView === 'notifications' ? (
                 <NotificationsPanel perm={notifPerm} onEnable={requestNotifications} />
+              ) : settingsView === 'wearables' ? (
+                <WearablesPanel
+                  providers={offeredWearables}
+                  status={wearableStatus}
+                  busy={wearableBusy}
+                  onConnect={connectWearable}
+                  onDisconnect={onDisconnectWearable}
+                />
               ) : (
                 <ErrorReportPanel
                   canSend={!!study}
@@ -1212,6 +1317,16 @@ export default function App() {
                               : 'Not scheduled'}
                         </span>
                       } />
+                      {study?.wearablesEnabled && (
+                        <InfoRow label="Wearables" value={
+                          <span className="inline-flex items-center gap-1 text-on-surface-variant">
+                            <Watch size={13} aria-hidden="true" />
+                            {wearableStatus.length > 0
+                              ? wearableStatus.map((w) => WEARABLE_LABEL[w.provider] ?? w.provider).join(', ')
+                              : 'None connected'}
+                          </span>
+                        } />
+                      )}
                     </div>
                     {/* Detail navigation */}
                     <div className="px-3 pb-4 pt-1 flex flex-col">

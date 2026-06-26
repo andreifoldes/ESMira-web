@@ -37,6 +37,13 @@ export class Study extends DataStructure implements TranslatableRootInterface {
 	// When enabled, the participant PWA registers a web-push subscription after
 	// consent and the server sends questionnaire reminders (see api/push_subscribe.php).
 	public webPushEnabled = this.primitive<boolean>("webPushEnabled", false)
+	// When enabled, the participant PWA can connect a wearable (Fitbit/Withings/Oura)
+	// via OAuth and the server polls it for data (see backend/wearables/, api/wearables_*).
+	// wearablesProviders limits which providers are offered; wearablesDataTypes (empty =
+	// each provider's defaults) limits which metrics are collected.
+	public wearablesEnabled = this.primitive<boolean>("wearablesEnabled", false)
+	public wearablesProviders = this.primitiveArray<string>("wearablesProviders")
+	public wearablesDataTypes = this.primitiveArray<string>("wearablesDataTypes")
 
 	public accessKeys = this.primitiveArray<string>("accessKeys")
 	public langCodes = this.primitiveArray<string>("langCodes", ["en"])

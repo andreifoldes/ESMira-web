@@ -130,6 +130,85 @@ class PushSender {
 		return ['studies' => $studiesProcessed, 'queued' => $queued];
 	}
 
+	/** Number of registered push subscriptions for a study (for the admin panel). */
+	public static function countSubscriptions(int $studyId): int {
+		$folder = PathsFS::folderPushSubscriptions($studyId);
+		if(!is_dir($folder))
+			return 0;
+		$n = 0;
+		foreach(array_diff(scandir($folder), ['.', '..']) as $entry) {
+			if(!self::isStateFile($entry))
+				$n++;
+		}
+		return $n;
+	}
+
+	/**
+	 * Send an immediate test notification to every subscriber of a study (admin
+	 * "Send test" action / cli/push_test.php). Returns per-endpoint delivery
+	 * results from the push service, and prunes any that have expired.
+	 */
+	public static function sendTest(int $studyId, string $title, string $body): array {
+		$publicKey  = Configs::get('vapid_public_key');
+		$privateKey = Configs::get('vapid_private_key');
+		if(empty($publicKey) || empty($privateKey))
+			return ['error' => 'VAPID keys not configured', 'queued' => 0, 'succeeded' => 0];
+
+		$subject = Configs::get('vapid_subject');
+		if(empty($subject))
+			$subject = 'mailto:noreply@esmira';
+
+		$webPush = new WebPush(['VAPID' => [
+			'subject'    => $subject,
+			'publicKey'  => $publicKey,
+			'privateKey' => $privateKey,
+		]]);
+
+		$folder = PathsFS::folderPushSubscriptions($studyId);
+		$queued = 0;
+		if(is_dir($folder)) {
+			foreach(array_diff(scandir($folder), ['.', '..']) as $entry) {
+				if(self::isStateFile($entry))
+					continue;
+				$data = json_decode(@file_get_contents($folder . $entry), true);
+				if(!is_array($data) || empty($data['subscription']['endpoint']))
+					continue;
+				try {
+					$sub = Subscription::create([
+						'endpoint' => $data['subscription']['endpoint'],
+						'keys'     => [
+							'p256dh' => $data['subscription']['keys']['p256dh'] ?? '',
+							'auth'   => $data['subscription']['keys']['auth'] ?? '',
+						],
+					]);
+					$webPush->queueNotification($sub, json_encode([
+						'title' => $title,
+						'body'  => $body,
+						'url'   => '/esmira/pwa/',
+					]));
+					$queued++;
+				}
+				catch(Throwable $e) { /* malformed — skip */ }
+			}
+		}
+
+		$succeeded = 0;
+		$reports = [];
+		foreach($webPush->flush() as $report) {
+			$ok = $report->isSuccess();
+			if($ok)
+				$succeeded++;
+			$reports[] = [
+				'success' => $ok,
+				'expired' => $report->isSubscriptionExpired(),
+				'reason'  => $ok ? '' : $report->getReason(),
+			];
+			if(!$ok && $report->isSubscriptionExpired())
+				self::removeSubscriptionByEndpoint($report->getEndpoint());
+		}
+		return ['queued' => $queued, 'succeeded' => $succeeded, 'reports' => $reports];
+	}
+
 	/** Numeric study folders under the studies root. */
 	private static function listStudyIds(): array {
 		$folder = PathsFS::folderStudies();

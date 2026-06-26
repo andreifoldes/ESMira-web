@@ -136,6 +136,40 @@ class PathsFS {
 	static function filePushState(int $studyId, string $userId): string {
 		return self::folderPushSubscriptions($studyId) . Paths::makeUrlFriendly($userId) . '.state';
 	}
+
+	// --- Wearables (Fitbit / Withings / Oura) data sharing. Everything lives under
+	// the study folder so it is captured by snapshots/backups, mirroring the push
+	// subscription layout above. `provider` is a short ascii slug (fitbit/withings/oura).
+
+	static function folderWearablesTokens(int $studyId): string {
+		return self::folderStudies() . "$studyId/.wearables_tokens/";
+	}
+	/** Encrypted per-participant OAuth token blob, one file per (participant, provider). */
+	static function fileWearablesToken(int $studyId, string $userId, string $provider): string {
+		return self::folderWearablesTokens($studyId) . Paths::makeUrlFriendly($userId) . '.' . Paths::makeSafe($provider);
+	}
+
+	static function folderWearablesData(int $studyId): string {
+		return self::folderStudies() . "$studyId/.wearables_data/";
+	}
+	/** Append-only CSV of fetched data points, one file per (participant, provider). */
+	static function fileWearablesData(int $studyId, string $userId, string $provider): string {
+		return self::folderWearablesData($studyId) . Paths::makeUrlFriendly($userId) . '.' . Paths::makeSafe($provider) . '.csv';
+	}
+	/** Per-(participant, provider) sync cursor (last fetched instant). */
+	static function fileWearablesSyncState(int $studyId, string $userId, string $provider): string {
+		return self::folderWearablesData($studyId) . Paths::makeUrlFriendly($userId) . '.' . Paths::makeSafe($provider) . '.state';
+	}
+
+	// OAuth CSRF states are global (the provider callback carries only `state`, not a
+	// study id); the state file content records which study/participant it belongs to.
+	static function folderWearablesOAuthStates(): string {
+		return self::folderData() . '.wearables_states/';
+	}
+	/** Single-use, short-lived CSRF state created when a participant starts a connect flow. */
+	static function fileWearablesOAuthState(string $state): string {
+		return self::folderWearablesOAuthStates() . Paths::makeSafe($state);
+	}
 	
 	static function folderRewardCodes(int $studyId): string {
 		return self::folderStudies() . "$studyId/.reward_codes/";
