@@ -33,7 +33,7 @@ import { SurveyInputs } from './components/SurveyInputs';
 import { InstallPrompt } from './components/InstallPrompt';
 import { WearablesPanel } from './components/WearablesPanel';
 
-type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'enterKey';
+type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey';
 
 /** localStorage key holding the last study invite code that loaded successfully,
  *  so an installed home-screen launch (which carries no ?key=) reopens it. */
@@ -260,26 +260,43 @@ export default function App() {
   }, []);
 
   // ── Tutorial-mode helpers ────────────────────────────────────
-  const shouldShowTutorial = useCallback((s: EsmiraStudy): boolean => {
-    if (tutorialParam === '0') return false;
-    if (tutorialParam === '1') return true;
-    return !!s.enableTutorialMode && !localStorage.getItem(tutorialSeenKey(s.id));
-  }, [tutorialParam]);
-
   const pushTutorialIntro = useCallback((s: EsmiraStudy) => {
-    pushBot("Here's a quick tutorial. Below is every questionnaire this study uses — you can try a practice run of any of them (nothing you enter is saved). When you're ready, continue to the study.");
+    pushBot("Here's a quick tour. Below is every questionnaire this study uses — you can try a practice run of any of them (nothing you enter is saved). When you're ready, continue to the study.");
     if (s.postInstallInstructions) pushBot(s.postInstallInstructions);
   }, [pushBot]);
 
-  // First screen after consent/name: the tutorial (first visit, if enabled) or the live list.
+  // After consent + name: offer a guided tour (yes/no) when the study enables it
+  // and it hasn't been done yet; otherwise go straight to the questionnaire list.
+  // `?tutorial=1` forces the tour, `?tutorial=0` suppresses the offer.
   const enterStudy = useCallback((s: EsmiraStudy) => {
-    if (shouldShowTutorial(s)) {
+    if (tutorialParam === '1') {
       pushTutorialIntro(s);
       setPhase('tutorial');
-    } else {
-      setPhase('list');
+      return;
     }
-  }, [shouldShowTutorial, pushTutorialIntro]);
+    if (tutorialParam !== '0' && s.enableTutorialMode && !localStorage.getItem(tutorialSeenKey(s.id))) {
+      pushBot('Would you like a quick guided tour of the questionnaires before you start?');
+      setPhase('tutorialOffer');
+      return;
+    }
+    pushBot('Choose a questionnaire to begin.');
+    setPhase('list');
+  }, [tutorialParam, pushTutorialIntro, pushBot]);
+
+  const acceptTutorial = useCallback(() => {
+    if (!study) return;
+    pushUser('Yes, show me');
+    pushTutorialIntro(study);
+    setPhase('tutorial');
+  }, [study, pushTutorialIntro, pushUser]);
+
+  const declineTutorial = useCallback(() => {
+    if (!study) return;
+    pushUser('No thanks');
+    localStorage.setItem(tutorialSeenKey(study.id), '1');
+    pushBot('No problem — choose a questionnaire to begin.');
+    setPhase('list');
+  }, [study, pushBot, pushUser]);
 
   const finishTutorial = useCallback(() => {
     if (study) localStorage.setItem(tutorialSeenKey(study.id), '1');
@@ -317,7 +334,9 @@ export default function App() {
         const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
         setParticipant(savedName);
         pushBot(`Welcome to ${study.title}.`);
-        if (study.studyDescription) pushBot(study.studyDescription);
+        // studyDescription is rich text (HTML) in ESMira; render it formatted.
+        // informedConsentForm is a plain-text field — keep it plain (line breaks preserved).
+        if (study.studyDescription) pushBot(study.studyDescription, true);
         const consented = localStorage.getItem(`esmira_consent_${study.id}`) === '1';
         if (study.informedConsentForm && !consented) {
           pushBot(study.informedConsentForm);
@@ -325,12 +344,9 @@ export default function App() {
         } else if (!savedName) {
           pushBot('Before we begin — what name would you like to go by? (Just for display; your study id is assigned automatically.)');
           setPhase('name');
-        } else if (shouldShowTutorial(study)) {
-          pushTutorialIntro(study);
-          setPhase('tutorial');
         } else {
           pushBot(`Welcome back, ${savedName}!`);
-          setPhase('list');
+          enterStudy(study);
         }
       })
       .catch((e: unknown) => {
@@ -414,6 +430,11 @@ export default function App() {
     setA11yOpen(false);
     setSettingsView('main');
     setUpdateStatus('idle');
+  };
+  // Open the Settings modal straight onto the wearables panel (from the grid menu tile).
+  const openWearables = () => {
+    setSettingsView('wearables');
+    setA11yOpen(true);
   };
 
   // ── Update studies: re-download the study config and flush the queue ──
@@ -609,14 +630,8 @@ export default function App() {
       localStorage.setItem(`esmira_participant_${study.id}`, value);
       pushUser(value);
       setFooterValue('');
-      if (shouldShowTutorial(study)) {
-        pushBot(`Thanks, ${value}!`);
-        pushTutorialIntro(study);
-        setPhase('tutorial');
-      } else {
-        pushBot(`Thanks, ${value}! Which questionnaire would you like to complete?`);
-        setPhase('list');
-      }
+      pushBot(`Thanks, ${value}!`);
+      enterStudy(study);
       return;
     }
     if (phase === 'survey' && currentQuestion?.type === 'text') {
@@ -981,6 +996,16 @@ export default function App() {
           </div>
         )}
 
+        {/* Tutorial offer (yes/no) — shown after consent + name for tutorial-enabled studies */}
+        {phase === 'tutorialOffer' && (
+          <div className="self-start w-[85%] flex gap-3">
+            <button onClick={acceptTutorial} className="flex-1 inline-flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all">
+              <PlayCircle size={18} aria-hidden="true" /> Yes, show me
+            </button>
+            <button onClick={declineTutorial} className="flex-1 bg-surface-container-high text-on-surface font-bold py-3 rounded-full active:scale-95 transition-all">No thanks</button>
+          </div>
+        )}
+
         {/* Push opt-in soft pre-prompt (shown once after consent, push-enabled studies) */}
         {pushPromptOpen && (
           <div className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
@@ -1098,6 +1123,9 @@ export default function App() {
                       {[
                         { key: 'settings', display: 'Settings', icon: Settings, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', onSelect: openSettings },
                         { key: 'about', display: 'Details', icon: Info, color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-500/10', onSelect: () => { setAboutView('main'); setAboutOpen(true); } },
+                        ...(offeredWearables.length > 0
+                          ? [{ key: 'wearables', display: 'Wearables', icon: Watch, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-500/10', onSelect: openWearables }]
+                          : []),
                         { key: 'contact', display: 'Contact', icon: MessageSquare, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-500/10', onSelect: openContact },
                         ...(phase === 'survey' && currentQuestion
                           ? [{ key: 'skip', display: 'Skip', icon: SkipForward, color: 'text-yellow-500', bg: 'bg-yellow-50 dark:bg-yellow-500/10', onSelect: handleSkip }]
