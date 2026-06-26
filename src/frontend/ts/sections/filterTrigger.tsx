@@ -172,6 +172,21 @@ export class Content extends SectionContent {
 					{ content: BtnCustom(m.trust(eventsSvg), undefined, Lang.get("add_event")), onclick: this.addEvent.bind(this, questionnaire) },
 				),
 			)}
+			{DashRow(
+				DashElement("stretched", {
+					content:
+						<div class="line vAlignCenter">
+							<label class="noDesc">
+								<small>{Lang.get("change_response_mode")}</small>
+								<select {...BindObservable(questionnaire.changeResponseMode)}>
+									<option value="previous">{Lang.get("change_response_previous")}</option>
+									<option value="any">{Lang.get("change_response_any")}</option>
+									<option value="none">{Lang.get("change_response_none")}</option>
+								</select>
+							</label>
+						</div>
+				})
+			)}
 			{(questionnaire.scriptFilter.get() != "" || this.showCodeEditor) && DashRow(
 				DashElement("stretched", {
 					content: <div>

@@ -24,6 +24,10 @@ export class Questionnaire extends DataStructure {
 	public durationPeriodDays = this.primitive<number>("durationPeriodDays", 0)
 	public durationStartingAfterDays = this.primitive<number>("durationStartingAfterDays", 0)
 	public completableOnce = this.primitive<boolean>("completableOnce", false)
+	// PWA chat flow only: which answered items show a "Change response" affordance.
+	// "previous" = only the last item (t-1), "any" = every prior item, "none" = disabled
+	// (e.g. for cognitive tasks, which must not be re-attempted).
+	public changeResponseMode = this.primitive<string>("changeResponseMode", "previous")
 	public completableOncePerNotification = this.primitive<boolean>("completableOncePerNotification", false)
 	public completableMinutesAfterNotification = this.primitive<number>("completableMinutesAfterNotification", 0)
 	public limitCompletionFrequency = this.primitive<boolean>("limitCompletionFrequency", false)
