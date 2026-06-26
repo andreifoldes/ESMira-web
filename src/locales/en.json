@@ -723,6 +723,7 @@
 	"change_response_previous": "Only the most recent answer",
 	"change_response_any": "Any previous answer",
 	"change_response_none": "Disabled (no changes — e.g. cognitive tasks)",
+	"push_notifications": "Push notifications",
 	"wearables": "Wearables",
 	"enable_wearables": "Enable wearables data sharing (web)",
 	"enable_wearables_info": "Lets web participants connect a wearable (Fitbit, Withings or Oura) from the app. The server then periodically collects their health data. Requires the provider's OAuth credentials configured on the server (cli/wearables_setup.php).",

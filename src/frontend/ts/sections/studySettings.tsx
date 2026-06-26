@@ -16,8 +16,6 @@ import { SectionData } from "../site/SectionData";
 export class Content extends SectionContent {
 	private isFrozen: boolean = false
 	private hasFallbackUrls: boolean
-	private pushInfo: { vapidConfigured: boolean, subscriptions: number } | null = null
-	private pushTestResult: string | null = null
 
 	public static preLoad(sectionData: SectionData): Promise<any>[] {
 		return [
@@ -51,29 +49,6 @@ export class Content extends SectionContent {
 		await this.sectionData.loader.showLoader(this.sectionData.siteData.studyLoader.deleteStudy(study))
 
 		this.goTo("admin/allStudies:edit")
-	}
-
-	private async loadPushInfo(study: Study): Promise<void> {
-		this.pushInfo = await this.sectionData.loader.loadJson(`${FILE_ADMIN}?type=GetPushInfo&study_id=${study.id.get()}`)
-		m.redraw()
-	}
-
-	private async sendTestPush(study: Study): Promise<void> {
-		const r = await this.sectionData.loader.loadJson(`${FILE_ADMIN}?type=SendTestPush&study_id=${study.id.get()}`, "post")
-		this.pushTestResult = `${r.succeeded ?? 0} / ${r.queued ?? 0} delivered`
-		await this.loadPushInfo(study)
-	}
-
-	// Runtime web-push status + "send test" for the study (admin monitoring panel).
-	private pushAdminView(study: Study): Vnode<any, any> {
-		return <div class="leftPadding verticalPadding">
-			<button type="button" onclick={() => this.loadPushInfo(study)}>{Lang.get("web_push_status")}</button>
-			{this.pushInfo &&
-				<small>&nbsp;{Lang.getWithColon("web_push_subscriptions")} {this.pushInfo.subscriptions}{!this.pushInfo.vapidConfigured ? ` · ${Lang.get("web_push_no_vapid")}` : ""}</small>}
-			<br />
-			<button type="button" onclick={() => this.sendTestPush(study)}>{Lang.get("send_test_notification")}</button>
-			{this.pushTestResult && <small>&nbsp;{this.pushTestResult}</small>}
-		</div>
 	}
 
 	public getView(): Vnode<any, any> {
@@ -170,17 +145,6 @@ export class Content extends SectionContent {
 								<span>{Lang.get('enable_tutorial_mode')}</span>
 								<small>{Lang.get('enable_tutorial_mode_info')}</small>
 							</label>
-						</div>
-				}),
-				DashElement("vertical", {
-					content:
-						<div class="vAlignCenter">
-							<label class="noTitle noDesc">
-								<input type="checkbox" {...BindObservable(study.webPushEnabled)} />
-								<span>{Lang.get('enable_web_push')}</span>
-								<small>{Lang.get('enable_web_push_info')}</small>
-							</label>
-							{study.webPushEnabled.get() && this.pushAdminView(study)}
 						</div>
 				}),
 				this.hasFallbackUrls && DashElement(null, {

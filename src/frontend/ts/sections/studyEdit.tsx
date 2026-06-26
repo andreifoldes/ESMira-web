@@ -100,6 +100,7 @@ export class Content extends SectionContent {
 				template: {title: Lang.get("publish_study"), icon: m.trust(publishSvg) }, href: this.getUrl("publish")
 			}),
 			DashElement(null, {template: {title: Lang.get("reward_system"), icon: m.trust(rewardsSvg), noCompatibilityIcon: ["Web"] }, href: this.getUrl("rewards")}),
+			DashElement(null, {template: {title: Lang.get("push_notifications"), icon: m.trust(alarmsSvg) }, href: this.getUrl("pushNotifications")}),
 			DashElement(null, {template: {title: Lang.get("wearables"), icon: m.trust(wearablesSvg) }, href: this.getUrl("wearables")}),
 			DashElement(null, {template: {title: Lang.get("study_settings"), icon: m.trust(settingsSvg) }, href: this.getUrl("studySettings")}),
 			DashElement(null, {template: {title: Lang.get("edit_source") }, href: this.getUrl("source")}),
