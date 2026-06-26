@@ -69,13 +69,13 @@ export function WearablesPanel({ providers, status, busy, onConnect, onDisconnec
                   </p>
                 </div>
                 {connected ? (
-                  <button onClick={() => onDisconnect(provider)} disabled={isBusy}
+                  <button onClick={() => onDisconnect(provider)} disabled={isBusy} aria-busy={isBusy}
                     className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-full text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-60 shrink-0">
                     {isBusy ? <RefreshCw size={15} className="animate-spin" aria-hidden="true" /> : <Unlink size={15} aria-hidden="true" />}
                     Disconnect
                   </button>
                 ) : (
-                  <button onClick={() => onConnect(provider)} disabled={isBusy}
+                  <button onClick={() => onConnect(provider)} disabled={isBusy} aria-busy={isBusy}
                     className="inline-flex items-center gap-1.5 text-sm font-bold px-3 py-2 rounded-full bg-primary text-on-primary active:scale-95 hover:brightness-110 transition-all disabled:opacity-60 shrink-0">
                     {isBusy ? <RefreshCw size={15} className="animate-spin" aria-hidden="true" /> : <LinkIcon size={15} aria-hidden="true" />}
                     Connect

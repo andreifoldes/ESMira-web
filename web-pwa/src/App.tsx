@@ -175,6 +175,52 @@ function pickStr(o: any, keys: string[]): string {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/**
+ * Accessibility for a modal dialog: on open, move focus into the dialog and trap Tab
+ * within it; Escape closes it; on close, focus returns to whatever opened it. Returns a
+ * ref to attach to the dialog's content element (give it tabIndex={-1} as a fallback).
+ * onClose is read from a ref so the effect only re-runs when `open` toggles (no focus
+ * stealing on inner re-renders).
+ */
+function useDialogA11y<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const node = ref.current;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(
+        node?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    (focusable()[0] ?? node)?.focus?.();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const els = focusable();
+        if (els.length === 0) { e.preventDefault(); return; }
+        const first = els[0], last = els[els.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    node?.addEventListener('keydown', onKey);
+    return () => {
+      node?.removeEventListener('keydown', onKey);
+      opener?.focus?.();
+    };
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  return ref;
+}
+
 export default function App() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const accessKey = params.get('key') ?? params.get('access_key') ?? '';
@@ -483,6 +529,12 @@ export default function App() {
     setSettingsView('wearables');
     setA11yOpen(true);
   };
+
+  // Dialog accessibility: Escape-to-close, focus trap, focus restore (see useDialogA11y).
+  const settingsDialogRef = useDialogA11y<HTMLDivElement>(a11yOpen, closeSettings);
+  const aboutDialogRef = useDialogA11y<HTMLDivElement>(aboutOpen, () => setAboutOpen(false));
+  const contactDialogRef = useDialogA11y<HTMLDivElement>(contactOpen, () => setContactOpen(false));
+  const gridMenuRef = useDialogA11y<HTMLDivElement>(gridMenuOpen, () => setGridMenuOpen(false));
 
   // ── Update studies: re-download the study config and flush the queue ──
   const updateStudies = async () => {
@@ -944,7 +996,7 @@ export default function App() {
     )}>
       {/* Wearable connect/disconnect result toast (auto-dismisses). */}
       {wearableFlash && (
-        <div role="status" className="fixed top-3 left-1/2 -translate-x-1/2 z-[120] max-w-[92%]">
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed top-3 left-1/2 -translate-x-1/2 z-[120] max-w-[92%]">
           <div className={cn('flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-semibold text-white',
             wearableFlash.ok ? 'bg-green-600' : 'bg-red-600')}>
             {wearableFlash.ok ? <CheckCircle size={16} aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
@@ -970,7 +1022,7 @@ export default function App() {
       </header>
 
       {/* Chat area */}
-      <main ref={scrollRef} role="log" aria-label="Survey conversation" aria-live="polite" className="flex-1 mt-16 mb-20 chat-wallpaper overflow-y-auto px-4 py-6 flex flex-col gap-4 no-scrollbar">
+      <main ref={scrollRef} role="log" aria-label="Survey conversation" aria-live="polite" tabIndex={0} className="flex-1 mt-16 mb-20 chat-wallpaper overflow-y-auto px-4 py-6 flex flex-col gap-4 no-scrollbar focus:outline-none">
         <div className="flex justify-center my-2">
           <span className="bg-slate-700 dark:bg-surface-container-highest text-white dark:text-on-surface px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm">Today</span>
         </div>
@@ -1016,7 +1068,7 @@ export default function App() {
         {/* Error */}
         {phase === 'error' && (
           <div className="self-center max-w-[85%] flex flex-col items-center gap-3">
-            <div className="bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm font-medium border border-red-200 dark:border-red-500/30">
+            <div role="alert" className="bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm font-medium border border-red-200 dark:border-red-500/30">
               {loadError}
             </div>
             <button
@@ -1086,7 +1138,7 @@ export default function App() {
 
         {/* Push opt-in soft pre-prompt (shown once after consent, push-enabled studies) */}
         {pushPromptOpen && (
-          <div className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
+          <div role="group" aria-label="Get survey reminders?" aria-live="polite" className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
             <div className="flex items-start gap-2">
               <BellRing size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1132,7 +1184,8 @@ export default function App() {
                   <ChevronRight size={18} className="text-outline-variant" aria-hidden="true" />
                 </button>
               ) : (
-                <div key={q.internalId} aria-disabled="true"
+                <button type="button" disabled key={q.internalId}
+                  aria-label={`${q.title}${av?.reason ? ` — ${av.reason}` : ''}`}
                   className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-surface-container-high/40 dark:bg-surface-container-highest/40 border border-dashed border-outline-variant/40 rounded-xl text-left opacity-70">
                   <div className="min-w-0">
                     <span className={cn('font-semibold text-on-surface-variant', textSizeClass)}>{q.title}</span>
@@ -1141,7 +1194,7 @@ export default function App() {
                     </p>
                   </div>
                   <Clock size={16} className="text-outline-variant shrink-0" aria-hidden="true" />
-                </div>
+                </button>
               );
             })}
           </div>
@@ -1192,7 +1245,7 @@ export default function App() {
           />
         )}
 
-        {submitting && <div className="self-center text-on-surface-variant text-sm">Saving…</div>}
+        {submitting && <div role="status" aria-live="polite" className="self-center text-on-surface-variant text-sm">Saving…</div>}
       </main>
 
       {/* Footer */}
@@ -1217,6 +1270,7 @@ export default function App() {
                     onTouchEnd={(e) => { e.preventDefault(); setGridMenuOpen(false); }}
                   />
                   <motion.div
+                    ref={gridMenuRef} tabIndex={-1} role="menu" aria-label="Menu"
                     initial={reduceMotion ? { opacity: 1 } : { opacity: 0, scale: 0.95, y: 10 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: 10 }}
@@ -1285,7 +1339,7 @@ export default function App() {
           return (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+            <motion.div ref={settingsDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
               className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
               <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-outline-variant/30 shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
@@ -1403,7 +1457,7 @@ export default function App() {
           return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
               className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <motion.div role="dialog" aria-modal="true" aria-labelledby="about-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+              <motion.div ref={aboutDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="about-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
                 className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
                 <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-outline-variant/30 shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
@@ -1503,7 +1557,7 @@ export default function App() {
         {contactOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div role="dialog" aria-modal="true" aria-labelledby="contact-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+            <motion.div ref={contactDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="contact-dialog-title" initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
               className="w-full max-w-md max-h-[85vh] bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface">
               <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
                 <h2 id="contact-dialog-title" className="font-bold text-lg flex items-center gap-2"><MessageSquare size={20} aria-hidden="true" /> Contact researchers</h2>
