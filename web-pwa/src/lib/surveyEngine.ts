@@ -228,7 +228,10 @@ export class OfflineSurveyEngine {
   rewindTo(questionId: string): PreloadedQuestion | null {
     const idx = this.session.questions.findIndex(q => q.id === questionId);
     if (idx < 0) return null;
-    delete this.state.responses[questionId];
+    // Clear this and any later responses so re-answering from here is clean
+    // ("any"-mode back-navigation; for the last item this is just the one response).
+    for (let i = idx; i < this.session.questions.length; i++)
+      delete this.state.responses[this.session.questions[i].id];
     this.state.currentIndex = idx;
     this.state.complete = false;
     return this.getCurrentQuestion();
