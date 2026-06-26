@@ -97,6 +97,7 @@ export type EsmiraResponseType =
   | 'time'
   | 'va_scale'
   | 'video'
+  | 'webapp'
   | string;
 
 export interface EsmiraInput {
@@ -112,6 +113,8 @@ export interface EsmiraInput {
   numberHasDecimal?: boolean;
   other?: boolean;
   url?: string;
+  /** "webapp" type: instructions shown on the launch card (the item `text` is the title). */
+  webappDescription?: string;
 }
 
 export interface EsmiraPage {
@@ -183,6 +186,9 @@ export interface EsmiraStudy {
   /** When true (set by the researcher in the designer), first-time web participants
    *  see a tutorial overview with optional no-submit practice runs before starting. */
   enableTutorialMode?: boolean;
+  /** Researcher-customised tutorial prompts (empty = the PWA's built-in defaults). */
+  tutorialOffer?: string;
+  tutorialIntro?: string;
   /** When true, the researcher has enabled server-sent web push reminders for PWA
    *  participants. The client requests notification permission after consent and
    *  registers a push subscription; the server schedules/sends the reminders. */

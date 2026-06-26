@@ -29,7 +29,7 @@ import type {
 const RENDERABLE = new Set([
   'likert', 'list_single', 'list_multiple', 'binary',
   'text_input', 'number', 'time', 'duration', 'date', 'va_scale',
-  'text', 'image',
+  'text', 'image', 'webapp',
 ]);
 
 /**
@@ -73,6 +73,25 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
     show_if: null,
     other_specify: null,
   };
+
+  // First-class "webapp" item: launch URL + title + instructions live in dedicated
+  // fields (no HTML parsing). This is the canonical shape for cognitive tasks; the
+  // anchor-in-text heuristic below stays only for legacy text_input items not yet
+  // migrated. Renders as the same 'cognitive' launch card.
+  if (rt === 'webapp') {
+    const url = input.url ?? '';
+    const title = (input.text ?? '').replace(/<[^>]+>/g, '').trim() || 'Assessment';
+    const sep = url.includes('?') ? '&' : '?';
+    return {
+      ...base,
+      type: 'cognitive',
+      title,
+      description: input.webappDescription ?? '',
+      // `v` busts any wrapper HTML cached before embed-mode shipped (see below).
+      launch_url: url ? `${url}${sep}embed=1&v=2` : '',
+      launch_label: `Start the ${title}`,
+    };
+  }
 
   // Cognitive/link-out tasks are detected by an anchor in the item text,
   // regardless of responseType. They need a value-holding type (e.g.

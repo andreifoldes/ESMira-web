@@ -26,7 +26,8 @@ export type InputResponseType =
 	"text_input" |
 	"time" |
 	"va_scale" |
-	"video"
+	"video" |
+	"webapp"
 
 export type InputMediaTypes = "image" | "audio"
 
@@ -57,6 +58,9 @@ export class Input extends DataStructure {
 	public defaultValue = this.translatable("defaultValue", "")
 	public text = this.translatable("text", "")
 	public url = this.translatable("url", "")
+	// "webapp" type: instructions shown on the launch card (the item `text` is the title,
+	// `url` is the launch URL). Empty for every other input type.
+	public webappDescription = this.translatable("webappDescription", "")
 	public leftSideLabel = this.translatable("leftSideLabel", "")
 	public rightSideLabel = this.translatable("rightSideLabel", "")
 	public listChoices = this.translatableArray("listChoices")

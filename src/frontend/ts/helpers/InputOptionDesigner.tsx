@@ -364,6 +364,25 @@ export class InputOptionDesigner {
 			category: "classic",
 			view: () => this.onlyRequiredAndDefaultOptions()
 		},
+		"webapp": {
+			title: Lang.get("input_webapp"),
+			helpUrl: "",
+			category: "special",
+			notCompatible: ["Android", "iOS"],
+			view: () => [
+				<div>
+					<label class="fakeLabel line">
+						<small>{Lang.getWithColon("webapp_url")}</small>
+						<input type="url" {...BindObservable(this.input.url)} />
+					</label>
+					<label class="fakeLabel line">
+						<small>{Lang.getWithColon("webapp_description")}</small>
+						<textarea {...BindObservable(this.input.webappDescription)}></textarea>
+					</label>
+					{this.requiredOption()}
+				</div>
+			]
+		},
 		"time": {
 			title: Lang.get("input_time"),
 			helpUrl: "https://github.com/KL-Psychological-Methodology/ESMira/wiki/Questionnaire-Items#Time-input",
