@@ -15,8 +15,12 @@ require_once dirname(__FILE__, 2) .'/backend/autoload.php';
 /** Redirect the browser back to the PWA with a status flag and stop. */
 function backToPwa(string $provider, string $status): void {
 	$provider = preg_replace('/[^a-z0-9_]/', '', strtolower($provider));
-	// Relative to /esmira/api/wearables_oauth.php → resolves to /esmira/pwa/.
-	$target = "../pwa/?wearable=$provider&status=$status";
+	// The participant PWA is served at the site root /pwa/ (overridable via the
+	// wearables_pwa_path server config). Absolute, so it resolves regardless of the
+	// callback's own path under /esmira/api/.
+	$pwaPath = backend\Configs::get('wearables_pwa_path');
+	$pwaPath = $pwaPath !== '' ? rtrim($pwaPath, '/') : '/pwa';
+	$target = "$pwaPath/?wearable=$provider&status=$status";
 	Main::setHeader('Location: ' . $target);
 	if(PHP_SAPI !== 'cli')
 		http_response_code(302);

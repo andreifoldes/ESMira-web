@@ -1,4 +1,4 @@
-# Served from /esmira/pwa/. Help the PWA update promptly and serve the manifest
+# Served from /pwa/. Help the PWA update promptly and serve the manifest
 # with the right MIME type. Copied verbatim into dist/pwa/ by Vite.
 AddType application/manifest+json .webmanifest
 

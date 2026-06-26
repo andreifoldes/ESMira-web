@@ -1,7 +1,7 @@
 /**
  * ESMira participant PWA — a chat-style survey experience modelled on the
  * iEMAbot PWA, served by ESMira's PHP backend. Pull-driven: the participant
- * opens /esmira/pwa/?key=ACCESSKEY and the "conversation" plays out locally.
+ * opens /pwa/?key=ACCESSKEY and the "conversation" plays out locally.
  *
  * Flow: load study -> (consent) -> participant name -> questionnaire list ->
  * chat-style survey (one question per bubble, engine-driven) -> submit to

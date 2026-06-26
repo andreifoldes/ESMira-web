@@ -80,10 +80,10 @@ self.addEventListener('push', (event: PushEvent) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body ?? '',
-      icon: '/esmira/pwa/pwa-192x192.png',
-      badge: '/esmira/pwa/pwa-192x192.png',
+      icon: '/pwa/pwa-192x192.png',
+      badge: '/pwa/pwa-192x192.png',
       tag: payload.tag,
-      data: { url: payload.url || '/esmira/pwa/' },
+      data: { url: payload.url || '/pwa/' },
     }),
   );
 });
@@ -92,12 +92,12 @@ self.addEventListener('push', (event: PushEvent) => {
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
   const data = event.notification.data as { url?: string } | undefined;
-  const targetUrl = data?.url || '/esmira/pwa/';
+  const targetUrl = data?.url || '/pwa/';
   event.waitUntil(
     (async () => {
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of wins) {
-        if (client.url.includes('/esmira/pwa/')) return (client as WindowClient).focus();
+        if (client.url.includes('/pwa/')) return (client as WindowClient).focus();
       }
       return self.clients.openWindow(targetUrl);
     })(),

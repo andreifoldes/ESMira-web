@@ -5,17 +5,18 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// In production the app is served by Apache at /esmira/pwa/.
-// In dev, all /esmira/api/* calls are proxied to a running ESMira instance.
-// Override the proxy target with ESMIRA_PROXY (e.g. a local Docker container at
-// http://localhost:8081, or the live instance).
+// In production the participant PWA is served at the short path /pwa/ (Caddy routes
+// /pwa/* to the ESMira container). The ESMira backend stays under /esmira/, so the API
+// root is pinned to /esmira/ in esmiraApi.ts rather than derived from this base.
+// In dev, all /esmira/api/* calls are proxied to a running ESMira instance; override
+// the target with ESMIRA_PROXY (e.g. a local Docker container at http://localhost:8081).
 const ESMIRA = process.env.ESMIRA_PROXY || 'https://iemabot.surrey.ac.uk';
 
 // Surface the package version to the app (shown on the About ESMira screen).
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
 
 export default defineConfig({
-  base: '/esmira/pwa/',
+  base: '/pwa/',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
@@ -36,9 +37,9 @@ export default defineConfig({
         // id/scope/start_url are all the served sub-path so the installed app is
         // isolated from ESMira's admin UI at /esmira/. start_url carries no ?key=
         // (the manifest can't); App.tsx restores the last study from localStorage.
-        id: '/esmira/pwa/',
-        scope: '/esmira/pwa/',
-        start_url: '/esmira/pwa/',
+        id: '/pwa/',
+        scope: '/pwa/',
+        start_url: '/pwa/',
         name: 'ESMira',
         short_name: 'ESMira',
         description: 'Take part in your ESMira study.',

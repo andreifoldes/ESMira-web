@@ -11,8 +11,13 @@
 
 import type { EsmiraStudy, PreloadedQuestion, StudiesEnvelope, WearableStatus } from '../types';
 
-/** API root derived from the served base path ('/esmira/pwa/' -> '/esmira/'). */
-const API_ROOT = (import.meta.env.BASE_URL || '/').replace(/pwa\/?$/, '');
+/**
+ * Root of the ESMira backend (the PHP app + api/). The PWA is served at /pwa/ but the
+ * backend lives under /esmira/, so this can't be derived from the PWA base — it's pinned
+ * to /esmira/ (overridable at build time via VITE_API_ROOT). In dev, vite proxies
+ * /esmira/api/* to the configured ESMIRA target (see vite.config.ts).
+ */
+const API_ROOT = (import.meta.env.VITE_API_ROOT as string | undefined) || '/esmira/';
 
 /** Full URL of the ESMira server root the PWA talks to (for display in About). */
 export function serverRootUrl(): string {

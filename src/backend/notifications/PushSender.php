@@ -106,7 +106,7 @@ class PushSender {
 						$webPush->queueNotification($sub, json_encode([
 							'title' => $occ['title'],
 							'body'  => $occ['body'],
-							'url'   => '/esmira/pwa/',
+							'url'   => '/pwa/',
 						]));
 						$queued++;
 					}
@@ -184,7 +184,7 @@ class PushSender {
 					$webPush->queueNotification($sub, json_encode([
 						'title' => $title,
 						'body'  => $body,
-						'url'   => '/esmira/pwa/',
+						'url'   => '/pwa/',
 					]));
 					$queued++;
 				}
