@@ -670,6 +670,72 @@ export function installErrorLogger(): () => void {
   };
 }
 
+// ── PID device-lock (prevents a pre-assigned invite link from being used on
+//    multiple devices simultaneously). Calls the iema-bot API, which is on the
+//    same origin as the ESMira PWA so no CORS issues arise.
+//    Result: 'claimed' | 'already_yours' | 'conflict' | 'error' (network fault)
+
+const PID_LOCK_API = '/api/v1/esmira/pid-lock';
+
+/** localStorage key for the stable per-browser device token (separate from userId). */
+export const DEVICE_TOKEN_KEY = 'esmira_device_token';
+
+/** Return or create a stable per-browser device identity token. */
+export function getOrCreateDeviceToken(): string {
+  const stored = localStorage.getItem(DEVICE_TOKEN_KEY);
+  if (stored) return stored;
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  const token = c?.randomUUID?.() ?? `dt-${Date.now().toString(36)}`;
+  localStorage.setItem(DEVICE_TOKEN_KEY, token);
+  return token;
+}
+
+export type PidLockStatus = 'claimed' | 'already_yours' | 'conflict' | 'error';
+
+/**
+ * Attempt to claim a pre-assigned PID for this device.
+ * Pass force=true to transfer the lock from another device (e.g. after user confirms).
+ * Returns 'error' on network failure — callers should fail open and let the user through.
+ */
+export async function claimPidLock(
+  studyId: string,
+  pid: string,
+  deviceToken: string,
+  force = false,
+): Promise<PidLockStatus> {
+  try {
+    const resp = await fetch(PID_LOCK_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ study_id: studyId, pid, device_token: deviceToken, force }),
+    });
+    if (!resp.ok) return 'error';
+    const env = await resp.json();
+    return (env?.status as PidLockStatus) ?? 'error';
+  } catch {
+    return 'error';
+  }
+}
+
+/**
+ * Release the PID lock for this device (call on sign-out). Best-effort — never throws.
+ */
+export async function releasePidLock(
+  studyId: string,
+  pid: string,
+  deviceToken: string,
+): Promise<void> {
+  try {
+    await fetch(PID_LOCK_API, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ study_id: studyId, pid, device_token: deviceToken }),
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Wire up automatic flushing on reconnect / tab visibility. */
 export function installSubmitQueueFlusher(): () => void {
   const onOnline = () => void flushSubmitQueue();

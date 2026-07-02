@@ -25,6 +25,7 @@ import {
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
   subscribeToPush, fetchNextNotification, logEvent, reportClientInfo,
   startWearableConnect, fetchWearableStatus, disconnectWearable,
+  claimPidLock, releasePidLock, getOrCreateDeviceToken,
 } from './lib/esmiraApi';
 import type { UploadProtocolEntry } from './lib/esmiraApi';
 import { ensurePushSubscription, isPushSupported } from './lib/push';
@@ -37,7 +38,7 @@ import { SurveyInputs } from './components/SurveyInputs';
 import { InstallPrompt } from './components/InstallPrompt';
 import { WearablesPanel } from './components/WearablesPanel';
 
-type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey';
+type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict';
 
 /** localStorage key holding the last study invite code that loaded successfully,
  *  so an installed home-screen launch (which carries no ?key=) reopens it. */
@@ -289,6 +290,8 @@ export default function App() {
   const [enrolledAt, setEnrolledAt] = useState<number | null>(null);
   // Ticks once a minute so availability windows re-evaluate while the app is open.
   const [nowTick, setNowTick] = useState(0);
+  // PID assigned via invite link that is already locked on another device.
+  const [pidConflict, setPidConflict] = useState<string | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactText, setContactText] = useState('');
   const [contactStatus, setContactStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -436,7 +439,7 @@ export default function App() {
       return;
     }
     fetchStudy(effectiveKey, studyIdParam)
-      .then(({ study, serverVersion, vapidPublicKey, wearableProviders }) => {
+      .then(async ({ study, serverVersion, vapidPublicKey, wearableProviders }) => {
         // Remember the code only once it actually loaded a study.
         localStorage.setItem(LAST_KEY_STORE, effectiveKey);
         setStudy(study);
@@ -444,7 +447,27 @@ export default function App() {
         setVapidKey(vapidPublicKey ?? null);
         setWearableProviders(wearableProviders ?? []);
         // Assign/restore the stable user id (invite-link param > stored > random).
-        setUserId(resolveUserId(study.id, params));
+        const uid = resolveUserId(study.id, params);
+        setUserId(uid);
+        // If the PID was pre-assigned via an invite link, check whether another device
+        // has already claimed it. Fail open (network errors let the participant through).
+        const invitedPid = (
+          params.get('pid') ?? params.get('uid') ?? params.get('user_id') ?? params.get('userId') ?? ''
+        ).trim();
+        if (invitedPid) {
+          const deviceToken = getOrCreateDeviceToken();
+          const lockStatus = await claimPidLock(String(study.id), invitedPid, deviceToken);
+          if (lockStatus === 'conflict') {
+            setPidConflict(invitedPid);
+            pushBot(`Welcome to ${study.title}.`);
+            pushBot(
+              `⚠️ Participant ID **${invitedPid}** is already active on another device for this study. ` +
+              `If you've switched devices, you can transfer this ID here. Otherwise, ask your researcher for a different invite link.`,
+            );
+            setPhase('pid-conflict');
+            return;
+          }
+        }
         const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
         setParticipant(savedName);
         pushBot(`Welcome to ${study.title}.`);
@@ -503,6 +526,11 @@ export default function App() {
   const signOut = () => {
     if (!window.confirm("Sign out? You'll need to enter your name again to continue the study.")) return;
     if (study) {
+      // Release the PID lock so the participant can re-enrol on a different device.
+      const deviceToken = localStorage.getItem('esmira_device_token') || '';
+      if (deviceToken && userId) {
+        void releasePidLock(String(study.id), userId, deviceToken);
+      }
       localStorage.removeItem(`esmira_participant_${study.id}`);
       localStorage.removeItem(`esmira_consent_${study.id}`);
       // Drop the assigned id too — a fresh visitor gets a new one (an invite-link
@@ -1137,6 +1165,50 @@ export default function App() {
         {/* Loading */}
         {phase === 'loading' && messages.length === 0 && (
           <div className="self-center text-on-surface-variant text-sm">Loading study…</div>
+        )}
+
+        {/* PID conflict — invite link already claimed on another device */}
+        {phase === 'pid-conflict' && study && (
+          <div role="group" aria-label="Participant ID already in use" className="self-start w-[85%] flex flex-col gap-3">
+            <button
+              onClick={async () => {
+                const deviceToken = getOrCreateDeviceToken();
+                const status = await claimPidLock(String(study.id), pidConflict!, deviceToken, true);
+                if (status === 'claimed') {
+                  pushUser('Transfer to this device');
+                  setPidConflict(null);
+                  const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
+                  setParticipant(savedName);
+                  if (study.studyDescription) pushBot(study.studyDescription, true);
+                  const consented = localStorage.getItem(`esmira_consent_${study.id}`) === '1';
+                  if (study.informedConsentForm && !consented) {
+                    pushBot(study.informedConsentForm);
+                    setPhase('consent');
+                  } else if (!savedName) {
+                    pushBot('Before we begin — what name would you like to go by?');
+                    setPhase('name');
+                  } else {
+                    pushBot(`Welcome back, ${savedName}!`);
+                    enterStudy(study);
+                  }
+                }
+              }}
+              className="w-full bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all"
+            >
+              Transfer to this device
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem(LAST_KEY_STORE);
+                setPidConflict(null);
+                setKeyInput('');
+                setPhase('enterKey');
+              }}
+              className="w-full bg-surface-container-high text-on-surface font-semibold py-3 rounded-full active:scale-95 transition-all"
+            >
+              Use a different code
+            </button>
+          </div>
         )}
 
         {/* Consent actions */}
