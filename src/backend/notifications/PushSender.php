@@ -224,6 +224,62 @@ class PushSender {
 		return ['queued' => $queued, 'succeeded' => $succeeded, 'reports' => $reports];
 	}
 
+	/**
+	 * Send an immediate test notification to a single participant of a study.
+	 * Returns the same shape as sendTest() but for one user.
+	 */
+	public static function sendTestToUser(int $studyId, string $userId, string $title, string $body): array {
+		$publicKey  = Configs::get('vapid_public_key');
+		$privateKey = Configs::get('vapid_private_key');
+		if(empty($publicKey) || empty($privateKey))
+			return ['error' => 'VAPID keys not configured', 'queued' => 0, 'succeeded' => 0];
+
+		$subject = Configs::get('vapid_subject');
+		if(empty($subject))
+			$subject = 'mailto:noreply@esmira';
+
+		$webPush = new WebPush(['VAPID' => [
+			'subject'    => $subject,
+			'publicKey'  => $publicKey,
+			'privateKey' => $privateKey,
+		]]);
+
+		$file = PathsFS::filePushSubscription($studyId, $userId);
+		$data = json_decode(@file_get_contents($file), true);
+		if(!is_array($data) || empty($data['subscription']['endpoint']))
+			return ['error' => 'No subscription found for this participant', 'queued' => 0, 'succeeded' => 0];
+
+		try {
+			$sub = Subscription::create([
+				'endpoint' => $data['subscription']['endpoint'],
+				'keys'     => [
+					'p256dh' => $data['subscription']['keys']['p256dh'] ?? '',
+					'auth'   => $data['subscription']['keys']['auth'] ?? '',
+				],
+			]);
+			$webPush->queueNotification($sub, json_encode([
+				'title' => $title,
+				'body'  => $body,
+				'url'   => '/pwa/',
+				'sid'   => $studyId,
+				'uid'   => $userId,
+			]));
+		}
+		catch(Throwable $e) {
+			return ['error' => 'Malformed subscription', 'queued' => 0, 'succeeded' => 0];
+		}
+
+		$succeeded = 0;
+		foreach($webPush->flush() as $report) {
+			if($report->isSuccess())
+				$succeeded++;
+			PushEvents::log($studyId, $userId, $report->isSuccess() ? 'sent' : 'failed');
+			if(!$report->isSuccess() && $report->isSubscriptionExpired())
+				self::removeSubscriptionByEndpoint($report->getEndpoint());
+		}
+		return ['queued' => 1, 'succeeded' => $succeeded];
+	}
+
 	/** Numeric study folders under the studies root. */
 	private static function listStudyIds(): array {
 		$folder = PathsFS::folderStudies();

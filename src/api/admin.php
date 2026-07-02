@@ -74,6 +74,7 @@ $classIndex = [
 	'GetPushInfo' => 'backend\admin\features\writePermission\GetPushInfo',
 	'GetPushStats' => 'backend\admin\features\writePermission\GetPushStats',
 	'SendTestPush' => 'backend\admin\features\writePermission\SendTestPush',
+	'SendTestPushToParticipant' => 'backend\admin\features\writePermission\SendTestPushToParticipant',
 	'SaveStudy' => 'backend\admin\features\writePermission\SaveStudy',
 	'MarkStudyAsUpdated' => 'backend\admin\features\writePermission\MarkStudyAsUpdated',
 	'GetOutboundFallbackUrls' => 'backend\admin\features\writePermission\GetOutboundFallbackUrls',

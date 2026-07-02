@@ -35,6 +35,7 @@ function pct(part: number, whole: number): string {
 export class Content extends SectionContent {
 	private stats: PushStats | null
 	private pushTestResult: string | null = null
+	private participantTestResults: Record<string, string> = {}
 
 	public static preLoad(sectionData: SectionData): Promise<any>[] {
 		return [
@@ -61,6 +62,23 @@ export class Content extends SectionContent {
 		const r = await this.sectionData.loader.loadJson(`${FILE_ADMIN}?type=SendTestPush&study_id=${study.id.get()}`, "post")
 		this.pushTestResult = `${r.succeeded ?? 0} / ${r.queued ?? 0} ${Lang.get("web_push_delivered")}`
 		await this.reload(study)
+	}
+
+	private async sendTestPushToParticipant(study: Study, userId: string): Promise<void> {
+		this.participantTestResults[userId] = "…"
+		m.redraw()
+		try {
+			const r = await this.sectionData.loader.loadJson(
+				`${FILE_ADMIN}?type=SendTestPushToParticipant&study_id=${study.id.get()}`,
+				"post",
+				`user_id=${encodeURIComponent(userId)}`
+			)
+			this.participantTestResults[userId] = r.succeeded > 0 ? "✅" : (r.error ?? "❌")
+		} catch(_) {
+			this.participantTestResults[userId] = "❌"
+		}
+		m.redraw()
+		setTimeout(() => { delete this.participantTestResults[userId]; m.redraw() }, 4000)
 	}
 
 	private funnelView(s: PushStats): Vnode<any, any> {
@@ -95,7 +113,7 @@ export class Content extends SectionContent {
 		</tbody></table>
 	}
 
-	private participantsView(s: PushStats): Vnode<any, any> {
+	private participantsView(s: PushStats, study: Study): Vnode<any, any> {
 		const rows = s.events.participants.slice(0, 100)
 		return <table class="boxStyle" style="width:100%"><tbody>
 			<tr>
@@ -103,15 +121,28 @@ export class Content extends SectionContent {
 				<th>{Lang.get("web_push_sent")}</th>
 				<th>{Lang.get("web_push_arrived")}</th>
 				<th>{Lang.get("web_push_opened")}</th>
+				<th></th>
 			</tr>
-			{rows.map(p => <tr>
-				<td style="font-family:monospace;word-break:break-all">{p.u}</td>
-				<td class="center">{p.sent}</td>
-				<td class="center">{p.received}</td>
-				<td class="center">{p.clicked}</td>
-			</tr>)}
+			{rows.map(p => {
+				const result = this.participantTestResults[p.u]
+				return <tr>
+					<td style="font-family:monospace;word-break:break-all">{p.u}</td>
+					<td class="center">{p.sent}</td>
+					<td class="center">{p.received}</td>
+					<td class="center">{p.clicked}</td>
+					<td class="center" style="white-space:nowrap">
+						{result
+							? <small>{result}</small>
+							: <button
+								type="button"
+								style="padding:2px 8px;font-size:0.8em"
+								onclick={() => this.sendTestPushToParticipant(study, p.u)}
+							>{Lang.get("send_test_notification")}</button>}
+					</td>
+				</tr>
+			})}
 			{s.events.participants.length > rows.length &&
-				<tr><td colspan="4"><small>{Lang.get("web_push_more_participants", s.events.participants.length - rows.length)}</small></td></tr>}
+				<tr><td colspan="5"><small>{Lang.get("web_push_more_participants", s.events.participants.length - rows.length)}</small></td></tr>}
 		</tbody></table>
 	}
 
@@ -159,7 +190,7 @@ export class Content extends SectionContent {
 				{DashRow(DashElement("stretched", { content: this.seriesView(s) }))}
 
 				{TitleRow(Lang.getWithColon("web_push_per_participant"))}
-				{DashRow(DashElement("stretched", { content: this.participantsView(s) }))}
+				{DashRow(DashElement("stretched", { content: this.participantsView(s, study) }))}
 
 				{DashRow(DashElement("stretched", {
 					content: <div class="center verticalPadding">
