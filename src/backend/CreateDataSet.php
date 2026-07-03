@@ -371,8 +371,9 @@ class CreateDataSet {
 	 * @throws DataSetException
 	 */
 	private function handleDataSet(stdClass $dataSet, string $uploaded) {
-		$responses = $dataSet->responses;
-		
+		$responses = $dataSet->responses ?? new stdClass();
+		$dataSet->responses = $responses;
+
 		if(isset($responses->actionScheduledTo))
 			$responses->actionScheduledTo_formatted = self::formatDate((int) $responses->actionScheduledTo);
 		if(isset($responses->lastInvitation) && $responses->lastInvitation != 0)
