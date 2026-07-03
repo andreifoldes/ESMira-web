@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Settings, ClipboardList, Info, X, Grid, SkipForward, PlayCircle,
+  Settings, Info, X, Grid, SkipForward, PlayCircle,
   Sun, Moon, Contrast, Type, Send, ChevronRight, ChevronLeft, CheckCircle, RotateCcw, LogOut,
   FileText, ShieldCheck, Bell, BellRing, BellOff, MessageSquare, UploadCloud, Clock, RefreshCw,
   Download, Bug, ExternalLink, Watch, Lock,
@@ -292,6 +292,7 @@ export default function App() {
   const [nowTick, setNowTick] = useState(0);
   // PID assigned via invite link that is already locked on another device.
   const [pidConflict, setPidConflict] = useState<string | null>(null);
+  const [activeQTitle, setActiveQTitle] = useState('');
   const [contactOpen, setContactOpen] = useState(false);
   const [contactText, setContactText] = useState('');
   const [contactStatus, setContactStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -810,6 +811,7 @@ export default function App() {
     const engine = new OfflineSurveyEngine(session);
     engineRef.current = engine;
     activeQRef.current = { id: q.internalId, name: q.title, changeMode: q.changeResponseMode ?? 'previous' };
+    setActiveQTitle(q.title);
     surveyStartRef.current = Date.now();
     pushUser(q.title);
     if (practice) pushSection('Practice run — nothing you enter is saved');
@@ -1019,6 +1021,22 @@ export default function App() {
   }, []);
 
   // ── Derived state ────────────────────────────────────────────
+  const headerStatus = useMemo(() => {
+    switch (phase) {
+      case 'enterKey':
+      case 'name':
+      case 'pid-conflict': return 'Sign up';
+      case 'consent': return 'Consent';
+      case 'tutorialOffer':
+      case 'tutorial': return 'Tutorial';
+      case 'survey': return activeQTitle || 'Survey';
+      case 'list': return participant || 'Questionnaires';
+      case 'loading': return 'Loading…';
+      case 'error': return 'Error';
+      default: return 'Survey';
+    }
+  }, [phase, activeQTitle, participant]);
+
   // The most recently answered question shows a "Change response" pill (t-1).
   const lastAnswerId = useMemo(() => {
     let id: string | undefined;
@@ -1057,13 +1075,11 @@ export default function App() {
       {/* Header */}
       <header aria-label={study?.title ?? 'ESMira Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-            <ClipboardList size={20} aria-hidden="true" />
-          </div>
+          <img src={`${import.meta.env.BASE_URL}esmira-logo.svg`} alt="" aria-hidden="true" className="w-10 h-10 rounded-full shrink-0 object-cover" />
           <div className="flex flex-col min-w-0">
             <h1 className="text-base font-bold leading-none truncate">{study?.title ?? 'ESMira Study'}</h1>
             <span className="text-[10px] opacity-80 uppercase tracking-widest font-semibold truncate">
-              {participant ? participant : 'Survey'}
+              {headerStatus}
             </span>
           </div>
         </div>
