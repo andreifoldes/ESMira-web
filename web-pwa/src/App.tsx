@@ -431,9 +431,15 @@ export default function App() {
   useEffect(() => {
     if (initedRef.current) return;
     initedRef.current = true;
-    // The invite code from the URL, or the last one that worked (so an installed
-    // home-screen launch — which carries no ?key= — reopens the same study).
-    const effectiveKey = accessKey || localStorage.getItem(LAST_KEY_STORE) || '';
+    // The invite code from the URL, or — only for installed home-screen launches
+    // (standalone display-mode, no URL bar) — the last code that worked, so the
+    // app reopens the same study after install. In a normal browser tab we never
+    // auto-restore the key: a bare /pwa/ visit should show the code-entry screen.
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as { standalone?: boolean }).standalone === true;
+    const storedKey = isStandalone ? localStorage.getItem(LAST_KEY_STORE) : null;
+    const effectiveKey = accessKey || storedKey || '';
     if (!effectiveKey) {
       // No code anywhere: ask the participant for their study invite code.
       setPhase('enterKey');
