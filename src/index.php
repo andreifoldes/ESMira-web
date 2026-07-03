@@ -95,7 +95,7 @@ $pluginsEnabled = $pluginStore->isEnabled();
 
 <div id="header">
 	<a href="#<?php echo $jsKey; ?>">
-		<img src="frontend/imgs/webHeader.png" alt="ESMira"/>
+		<img src="frontend/imgs/iemabot_logo.svg" alt="iEMAbot"/>
 	</a>
 	<div class="title" id="headerServerName"></div>
 </div>
@@ -120,8 +120,10 @@ $pluginsEnabled = $pluginStore->isEnabled();
 
 <input id="sectionBoxWidthSetter" type="range" min="20" max="100" value="45"/>
 
-<div id="siteLangChooser"></div>
-<a id="legalLink" href="#legal"></a>
+<footer id="siteFooter">
+	<a id="legalLink" href="#legal"></a>
+	<div id="siteLangChooser"></div>
+</footer>
 
 </body>
 </html>

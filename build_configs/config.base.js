@@ -37,6 +37,11 @@ module.exports = {
 	resolve: {
 		extensions: [".ts", ".tsx", ".js"],
 		// modules: ['src', 'node_modules'],
+		alias: {
+			// trianglify's Node SSR canvas binding is not needed in the browser (we only
+			// call toSVGTree(), not toCanvas()). Stub it so the browser build succeeds.
+			canvas: path.resolve(__dirname, 'canvas-stub.js'),
+		},
 	},
 	output: {
 		path: path.resolve(DIST, 'frontend'),
@@ -135,6 +140,11 @@ module.exports = {
 				{
 					from: path.resolve(__dirname, '..', 'CHANGELOG.md'),
 					to: path.resolve(DIST)
+				},
+				{
+					from: path.resolve(SRC, 'studyManifest.php'),
+					to: path.resolve(DIST),
+					toType: 'dir'
 				}
 			]}),
 		

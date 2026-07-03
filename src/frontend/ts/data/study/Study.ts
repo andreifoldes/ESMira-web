@@ -50,6 +50,8 @@ export class Study extends DataStructure implements TranslatableRootInterface {
 	// When true, participants only see their personal charts after the study is marked
 	// as over (studyOver = true). False = charts visible throughout the study.
 	public chartsVisibleOnlyAfterStudy = this.primitive<boolean>("chartsVisibleOnlyAfterStudy", false)
+	// Base64 data URL of optional artwork displayed on the study invite page.
+	public studyArtwork = this.primitive<string>("studyArtwork", "")
 
 	public accessKeys = this.primitiveArray<string>("accessKeys")
 	public langCodes = this.primitiveArray<string>("langCodes", ["en"])
