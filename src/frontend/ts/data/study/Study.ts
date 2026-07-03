@@ -44,6 +44,12 @@ export class Study extends DataStructure implements TranslatableRootInterface {
 	public wearablesEnabled = this.primitive<boolean>("wearablesEnabled", false)
 	public wearablesProviders = this.primitiveArray<string>("wearablesProviders")
 	public wearablesDataTypes = this.primitiveArray<string>("wearablesDataTypes")
+	// Whether participant-facing personal charts are enabled. Defaults to true so existing
+	// studies keep showing charts. Set to false to hide the charts tab entirely.
+	public enablePersonalCharts = this.primitive<boolean>("enablePersonalCharts", true)
+	// When true, participants only see their personal charts after the study is marked
+	// as over (studyOver = true). False = charts visible throughout the study.
+	public chartsVisibleOnlyAfterStudy = this.primitive<boolean>("chartsVisibleOnlyAfterStudy", false)
 
 	public accessKeys = this.primitiveArray<string>("accessKeys")
 	public langCodes = this.primitiveArray<string>("langCodes", ["en"])

@@ -43,6 +43,14 @@ export class Content extends SectionContent {
 		this.sectionData.loader.info(this.isFrozen ? Lang.get("info_study_frozen") : Lang.get("info_study_unfrozen"))
 	}
 
+	private async resetStudy(study: Study): Promise<void> {
+		if (!safeConfirm(Lang.get("confirm_reset_study", study.title.get())))
+			return
+
+		await this.sectionData.loader.loadJson(`${FILE_ADMIN}?type=EmptyData`, "post", `study_id=${study.id.get()}`)
+		this.sectionData.loader.info(Lang.get("info_successful"))
+	}
+
 	private async deleteStudy(study: Study): Promise<void> {
 		if (!safeConfirm(Lang.get("confirm_delete_study", study.title.get())))
 			return
@@ -176,6 +184,30 @@ export class Content extends SectionContent {
 
 
 
+			{TitleRow(Lang.getWithColon("personal_charts"))}
+			{DashRow(
+				DashElement("vertical", {
+					content:
+						<div class="vAlignCenter">
+							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(study.enablePersonalCharts)} />
+								<span>{Lang.get("enable_personal_charts")}</span>
+								<small>{Lang.get("enable_personal_charts_info")}</small>
+							</label>
+						</div>
+				}),
+				study.enablePersonalCharts.get() && DashElement("vertical", {
+					content:
+						<div class="vAlignCenter">
+							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(study.chartsVisibleOnlyAfterStudy)} />
+								<span>{Lang.get("charts_visible_only_after_study")}</span>
+								<small>{Lang.get("charts_visible_only_after_study_info")}</small>
+							</label>
+						</div>
+				})
+			)}
+
 			{TitleRow(Lang.getWithColon("inform_server_about_events"))}
 			{DashRow(
 				DashElement("stretched", {
@@ -275,6 +307,14 @@ export class Content extends SectionContent {
 							</label>
 						</div>
 				}))}
+
+			{TitleRow(Lang.getWithColon("reset_study"))}
+			<div class="center">
+				<small>{Lang.get("reset_study_desc")}</small>
+				<br />
+				<br />
+				{BtnTrash(this.resetStudy.bind(this, study), Lang.get("reset_study"))}
+			</div>
 
 			{TitleRow(Lang.getWithColon("delete_study"))}
 			<div class="center">
