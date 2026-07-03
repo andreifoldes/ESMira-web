@@ -1036,12 +1036,49 @@ export default function App() {
       case 'tutorialOffer':
       case 'tutorial': return 'Tutorial';
       case 'survey': return activeQTitle || 'Survey';
-      case 'list': return participant || 'Questionnaires';
+      case 'list': {
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const avValues = [...questionnaireAvailability.values()];
+        const visibleQs = study?.questionnaires.filter(q => q.title !== TRIALS_QN_TITLE) ?? [];
+        const maxPeriod = visibleQs.length
+          ? Math.max(0, ...visibleQs.map(q => q.durationPeriodDays ?? 0))
+          : 0;
+
+        if (avValues.length > 0) {
+          // All questionnaires ended → study over
+          if (avValues.every(av => av.state === 'ended')) {
+            if (enrolledAt && maxPeriod > 0) {
+              const d = new Date(enrolledAt + maxPeriod * DAY_MS);
+              return `Ended ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+            }
+            return 'Study ended';
+          }
+          // None available yet → study hasn't started
+          if (avValues.every(av => av.state === 'upcoming')) {
+            const earliest = avValues
+              .map(av => av.opensAt)
+              .filter((t): t is number => t != null)
+              .sort((a, b) => a - b)[0];
+            if (earliest) {
+              const d = new Date(earliest);
+              return `Starts ${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`;
+            }
+          }
+        }
+
+        // Study in progress → show which day
+        if (enrolledAt) {
+          const dayNum = Math.floor((Date.now() - enrolledAt) / DAY_MS) + 1;
+          if (maxPeriod > 0) return `Day ${dayNum} of ${maxPeriod}`;
+          if (dayNum >= 1) return `Day ${dayNum}`;
+        }
+        return 'Questionnaires';
+      }
       case 'loading': return 'Loading…';
       case 'error': return 'Error';
       default: return 'Survey';
     }
-  }, [phase, activeQTitle, participant]);
+  }, [phase, activeQTitle, questionnaireAvailability, enrolledAt, study]);
 
   // The most recently answered question shows a "Change response" pill (t-1).
   const lastAnswerId = useMemo(() => {
