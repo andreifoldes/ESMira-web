@@ -94,6 +94,14 @@ export function SurveyInputs({
               className={cn('text-on-surface leading-relaxed esmira-rich', textSizeClass)}
               dangerouslySetInnerHTML={{ __html: question.text }}
             />
+          ) : question.type === 'audio' ? (
+            // Voice-memo prompts are authored in ESMira's rich-text editor, so the
+            // text is HTML (<div>/<br>). Render it as HTML rather than escaped plain
+            // text, otherwise participants would see literal markup.
+            <div
+              className={cn('font-semibold text-on-surface leading-snug mb-2 esmira-rich', textSizeClass)}
+              dangerouslySetInnerHTML={{ __html: question.text }}
+            />
           ) : (
             <p className={cn('font-semibold text-on-surface leading-snug mb-2 whitespace-pre-wrap', textSizeClass)}>
               {question.text}
