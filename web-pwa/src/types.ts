@@ -19,6 +19,7 @@ export type QType =
   | 'duration'
   | 'date'
   | 'va_scale'
+  | 'audio'
   | 'cognitive'
   | 'info';
 
@@ -51,6 +52,8 @@ export interface PreloadedQuestion {
   // duration input constraints
   max_hours?: number;   // upper bound for the hours wheel (default 24)
   minute_step?: number; // step between minute options (default 1)
+  // audio (record_audio): max recording length in seconds (default 300 = 5 min)
+  max_recording_seconds?: number;
   show_if?: ShowIf | null;
   other_specify?: { options: string[]; prompt: string } | null;
 }
@@ -115,6 +118,8 @@ export interface EsmiraInput {
   url?: string;
   /** "webapp" type: instructions shown on the launch card (the item `text` is the title). */
   webappDescription?: string;
+  /** "record_audio" type: max recording length in seconds (falls back to 300 = 5 min). */
+  maxLength?: number;
 }
 
 export interface EsmiraPage {

@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ChevronRight, Check, Play } from 'lucide-react';
+import { ChevronRight, Check, Play, Mic } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { PreloadedQuestion } from '../types';
 
@@ -44,6 +44,7 @@ interface Props {
   onRespond: (id: string, value: string) => void;
   onContinueInfo: () => void;
   onOpenWebview: (url: string, title: string) => void;
+  onOpenRecorder: () => void;
 }
 
 export function SurveyInputs({
@@ -54,6 +55,7 @@ export function SurveyInputs({
   onRespond,
   onContinueInfo,
   onOpenWebview,
+  onOpenRecorder,
 }: Props) {
   return (
     <div className="pb-4 pt-2 self-start max-w-[85%] w-[85%]">
@@ -110,6 +112,7 @@ export function SurveyInputs({
           {question.type === 'duration' && <DurationInput question={question} onRespond={onRespond} />}
           {question.type === 'date' && <DateInput question={question} onRespond={onRespond} />}
           {question.type === 'va_scale' && <VaScale question={question} onRespond={onRespond} labelSizeClass={anchorLabelClass(textSizeClass)} />}
+          {question.type === 'audio' && <AudioCard question={question} onOpenRecorder={onOpenRecorder} onSkip={onContinueInfo} />}
           {question.type === 'text' && (
             <p className="text-sm text-on-surface-variant mt-2">Type your response below.</p>
           )}
@@ -173,6 +176,39 @@ function CognitiveCard({
           Skip
         </button>
       </div>
+    </div>
+  );
+}
+
+// Voice-memo launch card. The actual recorder is a modal owned by App (opened via
+// onOpenRecorder), matching how cognitive tasks launch their overlay. Optional
+// questions can be skipped without recording (onSkip → engine.skip()).
+function AudioCard({
+  question,
+  onOpenRecorder,
+  onSkip,
+}: {
+  question: PreloadedQuestion;
+  onOpenRecorder: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-col gap-2.5">
+      <button
+        onClick={onOpenRecorder}
+        className="w-full bg-primary text-on-primary font-bold py-3 rounded-full flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95"
+      >
+        <Mic size={18} aria-hidden="true" />
+        Record voice memo
+      </button>
+      {!question.required && (
+        <button
+          onClick={onSkip}
+          className="w-full bg-surface-container-high text-on-surface font-semibold py-3 rounded-full transition-all active:scale-95 hover:bg-surface-container-highest"
+        >
+          Skip
+        </button>
+      )}
     </div>
   );
 }
