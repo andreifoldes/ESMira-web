@@ -17,6 +17,12 @@ on:
       - '.github/workflows/accessibility.yml'
   workflow_dispatch:
 
+# Cancel an in-progress run when a newer commit lands on the same ref, so rapid
+# pushes don't stack up Actions minutes (matters on metered private repos).
+concurrency:
+  group: a11y-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   a11y:
     runs-on: ubuntu-latest
