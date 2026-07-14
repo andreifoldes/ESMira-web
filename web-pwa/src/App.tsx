@@ -35,8 +35,10 @@ import {
 } from './lib/availability';
 import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion, WearableStatus } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
+import { AudioRecorder } from './components/AudioRecorder';
 import { InstallPrompt } from './components/InstallPrompt';
 import { WearablesPanel } from './components/WearablesPanel';
+import { saveRecording } from './lib/audioUploads';
 
 type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict';
 
@@ -87,6 +89,7 @@ function nowTime(): string {
 
 /** Human-readable echo of a participant's answer for the user bubble. */
 function formatAnswer(q: PreloadedQuestion, value: string): string {
+  if (q.type === 'audio') return '🎤 Voice memo';
   if (q.type === 'yesno') {
     if (value === q.yes_value) return q.yes_label || 'Yes';
     if (value === q.no_value) return q.no_label || 'No';
@@ -299,6 +302,10 @@ export default function App() {
   const [webview, setWebview] = useState<{ url: string; title: string; qid?: string } | null>(null);
   const webviewRef = useRef<{ url: string; title: string; qid?: string } | null>(null);
   webviewRef.current = webview;
+  // Voice-memo recorder overlay (record_audio questions) + the upload identifiers
+  // captured in the active questionnaire (released for upload after submission).
+  const [recorder, setRecorder] = useState<PreloadedQuestion | null>(null);
+  const audioIdsRef = useRef<number[]>([]);
 
   const scrollRef = useRef<HTMLElement | null>(null);
   // Always-fresh userId for callbacks that would otherwise capture a stale closure.
@@ -819,6 +826,7 @@ export default function App() {
     activeQRef.current = { id: q.internalId, name: q.title, changeMode: q.changeResponseMode ?? 'previous' };
     setActiveQTitle(q.title);
     surveyStartRef.current = Date.now();
+    audioIdsRef.current = [];
     pushUser(q.title);
     if (practice) pushSection('Practice run — nothing you enter is saved');
     setPhase('survey');
@@ -841,6 +849,23 @@ export default function App() {
     }
     const next = engine.respond(questionId, value);
     afterAdvance(next);
+  };
+
+  // ── Save a completed voice memo ──────────────────────────────
+  // The recording bytes are persisted to IndexedDB immediately (survives reload /
+  // offline); the integer identifier becomes this question's response value and is
+  // uploaded to file_uploads.php after the questionnaire dataset reaches the server
+  // (see audioUploads.ts / submitQuestionnaire). For a practice run we still let the
+  // participant experience recording, but nothing is persisted or uploaded.
+  const handleSaveRecording = (identifier: number, blob: Blob) => {
+    const q = recorder;
+    setRecorder(null);
+    if (!q) return;
+    if (!practiceRef.current && study) {
+      void saveRecording({ studyId: study.id, userId, identifier, blob });
+      audioIdsRef.current.push(identifier);
+    }
+    handleRespond(q.id, String(identifier));
   };
 
   // ── Change the most recent answer (rewind engine, re-ask it) ──
@@ -941,6 +966,7 @@ export default function App() {
       newParticipant,
       formDuration: Date.now() - surveyStartRef.current,
       pageDurations: '',
+      audioIdentifiers: audioIdsRef.current,
     });
     // Record the join time (epoch ms) on first submission; bump the count of
     // completed questionnaires. Both surface in the About / Study information panel.
@@ -1394,6 +1420,7 @@ export default function App() {
             onRespond={handleRespond}
             onContinueInfo={handleContinueInfo}
             onOpenWebview={(url, title) => setWebview({ url, title, qid: currentQuestion?.id })}
+            onOpenRecorder={() => setRecorder(currentQuestion)}
           />
         )}
 
@@ -1758,6 +1785,16 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Voice-memo recorder overlay (record_audio questions) */}
+      {recorder && (
+        <AudioRecorder
+          question={recorder}
+          reduceMotion={reduceMotion}
+          onCancel={() => setRecorder(null)}
+          onSave={handleSaveRecording}
+        />
+      )}
 
       {/* Full-screen webview overlay (cognitive tasks / external assessments) */}
       <AnimatePresence>

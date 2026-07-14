@@ -10,6 +10,7 @@
  */
 
 import type { EsmiraStudy, PreloadedQuestion, StudiesEnvelope, WearableStatus } from '../types';
+import { flushAudioQueue, markAudioReady } from './audioUploads';
 
 /**
  * Root of the ESMira backend (the PHP app + api/). The PWA is served at /pwa/ but the
@@ -280,6 +281,10 @@ export interface SubmitArgs {
   newParticipant: boolean;
   formDuration: number;
   pageDurations: string;
+  /** Upload identifiers of `record_audio` memos captured in this questionnaire.
+   *  The bytes are already persisted in IndexedDB; they become uploadable only
+   *  once this dataset has reached the server (see audioUploads.ts). */
+  audioIdentifiers?: number[];
 }
 
 interface DatasetEntry {
@@ -441,6 +446,8 @@ interface QueuedSubmit {
   attempts: number;
   /** Links this queued payload back to its pending upload-protocol entries. */
   protocol?: { studyId: number; userId: string; ids: string[] };
+  /** Voice-memo upload identifiers to release for upload once this dataset sends. */
+  audio?: { studyId: number; userId: string; identifiers: number[] };
 }
 
 function loadQueue(): QueuedSubmit[] {
@@ -478,9 +485,16 @@ async function postDataset(payload: DatasetPayload): Promise<void> {
  */
 export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
   const payload = buildPayload(args);
+  const audioIds = args.audioIdentifiers ?? [];
   try {
     await postDataset(payload);
     appendProtocol(args.study.id, args.userId, questionnaireProtocolEntries(args, 'sent'));
+    // Dataset reached the server → its pending-upload markers exist; release the
+    // voice memos for upload and kick a flush (best-effort, non-blocking).
+    if (audioIds.length) {
+      await markAudioReady(args.study.id, args.userId, audioIds);
+      void flushAudioQueue();
+    }
     return true;
   } catch {
     const entries = questionnaireProtocolEntries(args, 'pending');
@@ -490,6 +504,7 @@ export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
       payload,
       attempts: 1,
       protocol: { studyId: args.study.id, userId: args.userId, ids: entries.map((e) => e.id) },
+      ...(audioIds.length ? { audio: { studyId: args.study.id, userId: args.userId, identifiers: audioIds } } : {}),
     });
     saveQueue(queue);
     return false;
@@ -598,12 +613,17 @@ export async function flushSubmitQueue(): Promise<void> {
     try {
       await postDataset(item.payload);
       if (item.protocol) markProtocolSent(item.protocol.studyId, item.protocol.userId, item.protocol.ids);
+      // This dataset's pending-upload markers now exist server-side → release
+      // any voice memos that were waiting on it.
+      if (item.audio) await markAudioReady(item.audio.studyId, item.audio.userId, item.audio.identifiers);
     } catch {
       remaining.push({ ...item, attempts: item.attempts + 1 });
     }
   }
   queue = remaining;
   saveQueue(queue);
+  // Whether or not the queue drained fully, try uploading any ready recordings.
+  void flushAudioQueue();
 }
 
 export function pendingSubmitCount(): number {
@@ -738,13 +758,19 @@ export async function releasePidLock(
 
 /** Wire up automatic flushing on reconnect / tab visibility. */
 export function installSubmitQueueFlusher(): () => void {
-  const onOnline = () => void flushSubmitQueue();
+  // flushSubmitQueue early-returns when the dataset queue is empty, so also flush
+  // the audio queue directly — a memo may still be pending after its dataset sent.
+  const flushAll = () => {
+    void flushSubmitQueue();
+    void flushAudioQueue();
+  };
+  const onOnline = () => flushAll();
   const onVisible = () => {
-    if (document.visibilityState === 'visible') void flushSubmitQueue();
+    if (document.visibilityState === 'visible') flushAll();
   };
   window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisible);
-  void flushSubmitQueue();
+  flushAll();
   return () => {
     window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisible);

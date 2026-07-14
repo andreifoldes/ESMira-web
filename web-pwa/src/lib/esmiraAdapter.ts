@@ -29,7 +29,7 @@ import type {
 const RENDERABLE = new Set([
   'likert', 'list_single', 'list_multiple', 'binary',
   'text_input', 'number', 'time', 'duration', 'date', 'va_scale',
-  'text', 'image', 'webapp',
+  'text', 'image', 'webapp', 'record_audio',
 ]);
 
 /**
@@ -156,6 +156,15 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       return { ...base, type: 'duration', max_hours: 24, minute_step: 1 };
     case 'date':
       return { ...base, type: 'date' };
+    case 'record_audio':
+      // Voice memo. The response value is an integer upload identifier (set when
+      // the participant saves the recording); the audio bytes upload separately to
+      // file_uploads.php and the backend links them to this key's CSV column.
+      return {
+        ...base,
+        type: 'audio',
+        max_recording_seconds: input.maxLength && input.maxLength > 0 ? input.maxLength : 300,
+      };
     case 'va_scale':
       return {
         ...base,

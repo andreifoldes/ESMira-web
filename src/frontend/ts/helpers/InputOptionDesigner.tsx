@@ -340,7 +340,8 @@ export class InputOptionDesigner {
 			title: Lang.get("input_record_audio"),
 			helpUrl: "https://github.com/KL-Psychological-Methodology/ESMira/wiki/Questionnaire-Items#Record-audio",
 			category: "media",
-			notCompatible: ["Web"],
+			// Web now supports voice memos via the participant PWA (MediaRecorder →
+			// api/file_uploads.php), so it's no longer flagged as web-incompatible.
 			view: () => [<div>{this.requiredOption()}</div>]
 		},
 		"share": {
