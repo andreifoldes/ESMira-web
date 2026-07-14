@@ -182,7 +182,11 @@ class PushScheduler {
 	/** [body, reminderCount, reminderDelayMs] for a trigger's notifying action, or null. */
 	private static function notificationAction(array $at): ?array {
 		foreach(($at['actions'] ?? []) as $a) {
-			if(in_array((int) ($a['type'] ?? 0), self::NOTIFICATION_ACTION_TYPES, true)) {
+			// Action.type defaults to 1 (Invitation) in the model, and DataStructure omits
+			// default-valued fields when serialising — so a plain invitation action has NO
+			// `type` key. Default the missing value to 1, not 0, or those (very common)
+			// actions would never notify.
+			if(in_array((int) ($a['type'] ?? 1), self::NOTIFICATION_ACTION_TYPES, true)) {
 				$msg   = $a['msgText'] ?? '';
 				$body  = (is_string($msg) && $msg !== '') ? $msg : 'You have a questionnaire to complete.';
 				$count = max(0, (int) ($a['reminder_count'] ?? 0));

@@ -31,6 +31,21 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return output;
 }
 
+/**
+ * navigator.serviceWorker.ready, but rejecting after `ms` so callers never hang forever
+ * if the service worker fails to register/activate (e.g. a dev build, private browsing,
+ * or a browser/enterprise policy blocking SW registration). Without this, the onboarding
+ * "Enable notifications" action would await a promise that never settles and stick on
+ * "Enabling…". On rejection the caller treats push as unavailable and continues.
+ */
+function serviceWorkerReady(ms = 8000): Promise<ServiceWorkerRegistration> {
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Service worker did not become ready')), ms)),
+  ]);
+}
+
 /** Byte-compare an existing subscription's applicationServerKey to the expected VAPID key. */
 function sameServerKey(existing: ArrayBuffer | null | undefined, wanted: Uint8Array): boolean {
   if (!existing) return false;
@@ -53,7 +68,7 @@ function sameServerKey(existing: ArrayBuffer | null | undefined, wanted: Uint8Ar
  */
 export async function ensurePushSubscription(vapidPublicKey: string): Promise<PushSubscriptionJSON> {
   if (!isPushSupported()) throw new Error('Push is not supported on this device');
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await serviceWorkerReady();
   const wanted = urlBase64ToUint8Array(vapidPublicKey);
   let existing = await reg.pushManager.getSubscription();
   if (existing && !sameServerKey(existing.options.applicationServerKey, wanted)) {
@@ -85,11 +100,11 @@ export async function showLocalNotification(title: string, body: string): Promis
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await serviceWorkerReady();
     await reg.showNotification(title, {
       body,
       icon: '/pwa/pwa-192x192.png',
-      badge: '/pwa/pwa-192x192.png',
+      badge: '/pwa/badge-96x96.png',
       tag: 'esmira-welcome',
     });
     return true;

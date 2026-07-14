@@ -938,7 +938,7 @@ export default function App() {
   // No survey answers are included — only the participant's note and technical
   // context that helps diagnose problems (device, versions, recent JS errors).
   const buildErrorReport = (note: string): string => {
-    const lines: string[] = ['--- ESMira error report ---'];
+    const lines: string[] = ['--- iEMAbot error report ---'];
     const trimmed = note.trim();
     if (trimmed) lines.push('', 'Participant note:', trimmed);
     lines.push(
@@ -1037,7 +1037,9 @@ export default function App() {
     if (q) {
       // Settle the question into the thread as a bot bubble, then the answer.
       // Tag both with the question id so "Change response" can rewind/remove them.
-      pushBot(q.text, false, questionId);
+      // Rich-text prompts (e.g. voice memos) carry HTML in `text`; render them as
+      // HTML like the live card, otherwise the bubble shows literal <div>/<br>.
+      pushBot(q.text, !!q.is_html, questionId);
       pushUser(formatAnswer(q, value), questionId);
     }
     const next = engine.respond(questionId, value);
@@ -1341,11 +1343,11 @@ export default function App() {
       )}
 
       {/* Header */}
-      <header aria-label={study?.title ?? 'ESMira Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
+      <header aria-label={study?.title ?? 'iEMAbot Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <img src={`${import.meta.env.BASE_URL}esmira-logo.svg`} alt="" aria-hidden="true" className="w-10 h-10 rounded-full shrink-0 object-cover" />
           <div className="flex flex-col min-w-0">
-            <h1 className="text-base font-bold leading-none truncate">{study?.title ?? 'ESMira Study'}</h1>
+            <h1 className="text-base font-bold leading-none truncate">{study?.title ?? 'iEMAbot Study'}</h1>
             <span className="text-[10px] opacity-80 uppercase tracking-widest font-semibold truncate">
               {headerStatus}
             </span>
@@ -1811,7 +1813,7 @@ export default function App() {
       {/* Settings modal — appearance + app-level features (error report, notifications, update, about) */}
       <AnimatePresence>
         {a11yOpen && (() => {
-          const settingsTitle = settingsView === 'about' ? 'About ESMira'
+          const settingsTitle = settingsView === 'about' ? 'About iEMAbot'
             : settingsView === 'notifications' ? 'Notifications'
             : settingsView === 'errorReport' ? 'Send error report'
             : settingsView === 'wearables' ? 'Connect wearables'
@@ -1882,7 +1884,7 @@ export default function App() {
                         {updateStatus === 'error' && <span className="text-xs font-semibold text-red-600 dark:text-red-400 shrink-0">Failed</span>}
                         {updateStatus === 'idle' && <ChevronRight size={18} className="text-outline-variant shrink-0" aria-hidden="true" />}
                       </button>
-                      <AboutLinkButton icon={Info} label="About ESMira" onClick={() => setSettingsView('about')} />
+                      <AboutLinkButton icon={Info} label="About iEMAbot" onClick={() => setSettingsView('about')} />
                     </div>
                   </div>
                 </div>
@@ -1932,7 +1934,9 @@ export default function App() {
           const detailTitle = aboutView === 'description' ? 'Study description'
             : aboutView === 'consent' ? 'Informed consent'
             : 'Upload protocol';
-          const detailHtml = aboutView === 'description' ? study?.studyDescription : study?.informedConsentForm;
+          // studyDescription is rich text (HTML); informedConsentForm is a plain-text
+          // field whose line breaks must be preserved (rendered below accordingly).
+          const detailContent = aboutView === 'description' ? study?.studyDescription : study?.informedConsentForm;
           const protocolEntries = study && aboutView === 'protocol' ? loadUploadProtocol(study.id, userId) : [];
           return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
@@ -2022,8 +2026,12 @@ export default function App() {
                 ) : (
                   // tabIndex={0} so keyboard users can scroll this text-only region (WCAG 2.1.1).
                   <div className="p-5 overflow-y-auto custom-scrollbar focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" tabIndex={0} role="region" aria-label={detailTitle}>
-                    {detailHtml
-                      ? <div className={cn('leading-relaxed esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: detailHtml }} />
+                    {detailContent
+                      ? (aboutView === 'description'
+                          // Rich text (HTML) — render formatted.
+                          ? <div className={cn('leading-relaxed esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: detailContent }} />
+                          // Plain text — preserve line breaks exactly like the chat stream.
+                          : <p className={cn('leading-relaxed whitespace-pre-wrap', textSizeClass)}>{detailContent}</p>)
                       : <p className="text-sm text-on-surface-variant">Not provided for this study.</p>}
                   </div>
                 )}
@@ -2191,7 +2199,7 @@ function AboutEsmiraPanel({ serverVersion }: { serverVersion: number }) {
       <div className="flex items-center gap-3">
         <img src={`${import.meta.env.BASE_URL}esmira-logo.svg`} alt="" className="w-12 h-12 shrink-0" />
         <div className="min-w-0">
-          <p className="font-bold text-lg leading-none">ESMira</p>
+          <p className="font-bold text-lg leading-none">iEMAbot</p>
           <p className="text-xs text-on-surface-variant mt-1">Web participant interface</p>
         </div>
       </div>
