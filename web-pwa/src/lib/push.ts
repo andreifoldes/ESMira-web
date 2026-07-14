@@ -31,20 +31,44 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return output;
 }
 
+/** Byte-compare an existing subscription's applicationServerKey to the expected VAPID key. */
+function sameServerKey(existing: ArrayBuffer | null | undefined, wanted: Uint8Array): boolean {
+  if (!existing) return false;
+  const a = new Uint8Array(existing);
+  if (a.length !== wanted.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== wanted[i]) return false;
+  return true;
+}
+
 /**
  * Get the existing push subscription for the active service worker, or create one
  * bound to `vapidPublicKey`. Returns the subscription serialized as JSON, ready to
  * send to the backend. Throws if push is unsupported or the SW isn't ready.
+ *
+ * Self-healing: if the browser already holds a subscription bound to a *different*
+ * applicationServerKey than the server's current VAPID key (e.g. it was created under
+ * an older/rotated keypair, or on localhost during testing), every server push to it
+ * is silently rejected by the push service. We detect that mismatch and drop + recreate
+ * the subscription against the current key, so reminders actually get delivered.
  */
 export async function ensurePushSubscription(vapidPublicKey: string): Promise<PushSubscriptionJSON> {
   if (!isPushSupported()) throw new Error('Push is not supported on this device');
   const reg = await navigator.serviceWorker.ready;
-  const existing = await reg.pushManager.getSubscription();
+  const wanted = urlBase64ToUint8Array(vapidPublicKey);
+  let existing = await reg.pushManager.getSubscription();
+  if (existing && !sameServerKey(existing.options.applicationServerKey, wanted)) {
+    try {
+      await existing.unsubscribe();
+    } catch {
+      /* ignore — we'll resubscribe regardless */
+    }
+    existing = null;
+  }
   const sub =
     existing ??
     (await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      applicationServerKey: wanted,
     }));
   return sub.toJSON();
 }

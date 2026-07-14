@@ -14,7 +14,7 @@ import {
   Settings, Info, X, Grid, SkipForward, PlayCircle,
   Sun, Moon, Contrast, Type, Send, ChevronRight, ChevronLeft, CheckCircle, RotateCcw, LogOut,
   FileText, ShieldCheck, Bell, BellRing, BellOff, MessageSquare, UploadCloud, Clock, RefreshCw,
-  Download, Bug, ExternalLink, Watch, Lock,
+  Download, Bug, ExternalLink, Watch, Lock, Check,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
@@ -23,7 +23,7 @@ import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
-  subscribeToPush, fetchNextNotification, logEvent, reportClientInfo, sendWelcomePush,
+  subscribeToPush, fetchNextNotification, logEvent, reportClientInfo, sendWelcomePush, reportPushEvent,
   startWearableConnect, fetchWearableStatus, disconnectWearable,
   claimPidLock, releasePidLock, getOrCreateDeviceToken,
 } from './lib/esmiraApi';
@@ -33,6 +33,7 @@ import {
   computeAvailability, summarize, ensureEnrollment, loadCompletions, recordCompletion,
   type Availability,
 } from './lib/availability';
+import { mirrorCompletion, backfillCompletions } from './lib/completionMirror';
 import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion, WearableStatus } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
 import { AudioRecorder } from './components/AudioRecorder';
@@ -297,6 +298,9 @@ export default function App() {
   // True while the mandatory notifications onboarding step is requesting permission
   // / subscribing / sending the welcome push (disables its buttons).
   const [notifBusy, setNotifBusy] = useState(false);
+  // While the mandatory notifications step is showing the "did the welcome arrive?"
+  // confirmation (Yes/No), after a welcome push has been dispatched.
+  const [awaitingWelcomeConfirm, setAwaitingWelcomeConfirm] = useState(false);
   // Next scheduled reminder (UTC ms) shown in the Details panel; null = none/unknown.
   const [nextNotification, setNextNotification] = useState<number | null>(null);
   const [errorText, setErrorText] = useState('');
@@ -365,6 +369,9 @@ export default function App() {
     const now = Date.now();
     const joined = ensureEnrollment(s.id, uid, now);
     setEnrolledAt(joined);
+    // Backfill the SW-readable completion mirror so notifications for already-completed
+    // questionnaires are suppressed even for participants who joined before it existed.
+    void backfillCompletions(s.id, uid, loadCompletions(s.id, uid));
     const visible = s.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE);
     const { message } = summarize(visible, joined, now, loadCompletions(s.id, uid));
     pushBot(lead ? `${lead} ${message}` : message);
@@ -661,14 +668,13 @@ export default function App() {
     }
   }, [study, vapidKey, serverVersion, userId]);
 
-  // Deliver the one-time onboarding welcome: a real server-sent push (the true test of
-  // the reminder pipeline), falling back to a local service-worker notification if the
-  // server couldn't send/confirm it. Guarded so it fires at most once per study+user.
-  const maybeDeliverWelcome = useCallback(async (s: EsmiraStudy) => {
+  // Deliver the onboarding welcome to this device: a real server-sent push (the true test
+  // of the reminder pipeline), falling back to a local service-worker notification if the
+  // server couldn't send it. Returns whether the *server* push was accepted. Not guarded —
+  // callers decide when to send; delivery itself can't be verified server-side, so the
+  // participant is asked to confirm receipt (see the notifications-step confirmation).
+  const deliverWelcome = useCallback(async (s: EsmiraStudy): Promise<boolean> => {
     const uid = userIdRef.current;
-    const key = `esmira_push_welcomed_${s.id}_${uid}`;
-    if (localStorage.getItem(key) === '1') return;
-    localStorage.setItem(key, '1');
     let succeeded = 0;
     try {
       succeeded = await sendWelcomePush({ study: s, serverVersion, userId: uid });
@@ -681,7 +687,18 @@ export default function App() {
         "Notifications are on — we'll remind you when a questionnaire is ready.",
       );
     }
+    return succeeded >= 1;
   }, [serverVersion]);
+
+  // Silent onboarding path (returning device that already granted permission): deliver the
+  // welcome at most once per study+user, with no confirmation prompt.
+  const maybeDeliverWelcome = useCallback(async (s: EsmiraStudy) => {
+    const uid = userIdRef.current;
+    const key = `esmira_push_welcomed_${s.id}_${uid}`;
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    await deliverWelcome(s);
+  }, [deliverWelcome]);
 
   // ── Notifications: ask the browser for permission, then subscribe to push ──
   const requestNotifications = async () => {
@@ -745,18 +762,61 @@ export default function App() {
         perm = await Notification.requestPermission();
       }
       setNotifPerm(perm === 'default' ? 'default' : perm);
-      if (perm === 'granted') {
-        const ok = await subscribePush();
-        await maybeDeliverWelcome(study);
-        pushBot(ok
-          ? "✅ Notifications are on — I've just sent you a welcome notification. You should see it in a moment."
-          : "✅ Notifications are on. You'll get notifications while the app is open; for background reminders, install this app to your home screen.");
+      if (perm !== 'granted') return;
+
+      const ok = await subscribePush();
+      if (!ok) {
+        // Permission granted but we couldn't register a push subscription (rare on a
+        // supported browser). No real push is possible, so skip the confirmation and
+        // continue — they'll still get notifications while the app is open.
+        pushBot("✅ Notifications are on. You'll get notifications while the app is open; for background reminders, install this app to your home screen.");
         enterStudy(study);
+        return;
       }
+      // Record that a welcome has been dispatched so the silent path won't re-send later.
+      localStorage.setItem(`esmira_push_welcomed_${study.id}_${userIdRef.current}`, '1');
+      const serverSucceeded = await deliverWelcome(study);
+      pushBot(serverSucceeded
+        ? "✅ Notifications are on — I've just sent you a welcome notification."
+        : "✅ Notifications are on — I've sent a welcome notification to this device.");
+      pushBot('Did it show up? Let me know so I can be sure notifications are reaching you.');
+      setAwaitingWelcomeConfirm(true);
     } finally {
       setNotifBusy(false);
     }
-  }, [study, notifBusy, subscribePush, maybeDeliverWelcome, pushBot, enterStudy]);
+  }, [study, notifBusy, subscribePush, deliverWelcome, pushBot, enterStudy]);
+
+  // Notifications-step confirmation — the participant saw the welcome. Record it (so we
+  // never re-welcome or re-prompt) and continue into the study.
+  const confirmWelcomeReceived = useCallback(() => {
+    if (!study) return;
+    const uid = userIdRef.current;
+    localStorage.setItem(`esmira_push_welcome_confirmed_${study.id}_${uid}`, '1');
+    void reportPushEvent({ studyId: study.id, userId: uid, event: 'welcome_confirmed' });
+    pushUser('Yes, got it');
+    pushBot("Perfect — you're all set. I'll send a notification whenever a questionnaire is ready.");
+    setAwaitingWelcomeConfirm(false);
+    enterStudy(study);
+  }, [study, pushUser, pushBot, enterStudy]);
+
+  // Notifications-step confirmation — the welcome didn't arrive. Flag it for the research
+  // team's Push panel, try one local notification so the participant still sees something,
+  // then continue (a delivery problem must never block participation).
+  const reportWelcomeMissed = useCallback(async () => {
+    if (!study) return;
+    const uid = userIdRef.current;
+    void reportPushEvent({ studyId: study.id, userId: uid, event: 'welcome_missed' });
+    pushUser('No, nothing yet');
+    const shown = await showLocalNotification(
+      `Welcome to ${study.title}`,
+      "Notifications are on — we'll remind you when a questionnaire is ready.",
+    );
+    pushBot(shown
+      ? "Thanks — I've shown one now and let the study team know, in case reminders don't reach you. You can carry on with the study."
+      : "Thanks — I've let the study team know so they can help make sure reminders reach you. You can still take part in the study.");
+    setAwaitingWelcomeConfirm(false);
+    enterStudy(study);
+  }, [study, pushUser, pushBot, enterStudy]);
 
   // Mandatory notifications step — escape hatch. Records the opt-out (so the step
   // isn't shown again for this study) and continues into the study.
@@ -1080,7 +1140,12 @@ export default function App() {
     if (active) {
       const anchor = enrolledAt ?? ensureEnrollment(study.id, userId, submittedAt);
       const q = study.questionnaires.find((x) => x.internalId === active.id);
-      if (q) recordCompletion(study.id, userId, q, anchor, submittedAt);
+      if (q) {
+        recordCompletion(study.id, userId, q, anchor, submittedAt);
+        // Mirror to IndexedDB so the SW suppresses further prompts for this questionnaire.
+        const rec = loadCompletions(study.id, userId)[q.internalId];
+        if (rec) void mirrorCompletion(study.id, userId, q.internalId, rec.lastAt, rec.count);
+      }
     }
     setSubmitting(false);
     pushBot(ok
@@ -1457,6 +1522,32 @@ export default function App() {
           const denied = supported && notifPerm === 'denied';
           return (
           <div role="group" aria-label="Turn on notifications" aria-live="polite" className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
+            {awaitingWelcomeConfirm ? (
+              // A welcome was dispatched — ask the participant to confirm it actually showed
+              // up (server push delivery can't be verified). "No" flags the research team.
+              <>
+                <div className="flex items-start gap-2">
+                  <BellRing size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
+                  <div>
+                    <p className="font-bold text-on-surface">Did the notification arrive?</p>
+                    <p className={cn('text-on-surface-variant mt-0.5', textSizeClass)}>
+                      I just sent a welcome notification to this device. Tap “Yes, got it” if you saw it — or “No, nothing yet” if nothing showed up, and I'll let the study team know.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={confirmWelcomeReceived}
+                    className="flex-1 inline-flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all">
+                    <Check size={16} aria-hidden="true" /> Yes, got it
+                  </button>
+                  <button onClick={() => void reportWelcomeMissed()}
+                    className="flex-1 bg-surface-container-high text-on-surface font-bold py-3 rounded-full active:scale-95 transition-all">
+                    No, nothing yet
+                  </button>
+                </div>
+              </>
+            ) : (
+            <>
             <div className="flex items-start gap-2">
               <BellRing size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1512,6 +1603,8 @@ export default function App() {
                   Continue without notifications
                 </button>
               </>
+            )}
+            </>
             )}
           </div>
           );

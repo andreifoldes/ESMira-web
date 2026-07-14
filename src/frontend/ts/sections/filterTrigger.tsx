@@ -99,6 +99,21 @@ export class Content extends SectionContent {
 		return actionTrigger.eventTriggers.get()[0]
 	}
 
+	/**
+	 * A questionnaire is "event-triggered" when it is delivered by event trigger(s) and
+	 * has no schedule. Such questionnaires open when the event fires, so a start-of-day
+	 * bound is meaningless — only an end-of-day completion deadline may be configured.
+	 * A questionnaire that has any schedule (even alongside events) keeps the full range.
+	 */
+	private isEventTriggered(questionnaire: Questionnaire): boolean {
+		const triggers = questionnaire.actionTriggers.get()
+		if (!triggers.length)
+			return false
+		const hasSchedule = triggers.some((t) => t.schedules.get().length > 0)
+		const hasEvent = triggers.some((t) => t.eventTriggers.get().length > 0)
+		return hasEvent && !hasSchedule
+	}
+
 
 	private getScheduleTitle(schedule: Schedule): string {
 		const midnight = getMidnightMillis(Date.now())
@@ -239,6 +254,7 @@ export class Content extends SectionContent {
 
 	private createFilterEntries(questionnaire: Questionnaire): FilterEntry[] {
 		const study = this.getStudyOrThrow()
+		const eventTriggered = this.isEventTriggered(questionnaire)
 		const list: FilterEntry[] = [
 			{
 				title: questionnaire.durationStart.get() != 0
@@ -328,22 +344,40 @@ export class Content extends SectionContent {
 			},
 			{
 				title: questionnaire.completableAtSpecificTime.get()
-					? `${Lang.getWithColon("only_at_specific_time")} ${TimeTransformer.toAttribute(questionnaire.completableAtSpecificTimeStart.get())} - ${TimeTransformer.toAttribute(questionnaire.completableAtSpecificTimeEnd.get())}`
-					: Lang.get("only_at_specific_time"),
+					? (eventTriggered
+						? `${Lang.getWithColon("must_be_completed_by")} ${TimeTransformer.toAttribute(questionnaire.completableAtSpecificTimeEnd.get())}`
+						: `${Lang.getWithColon("only_at_specific_time")} ${TimeTransformer.toAttribute(questionnaire.completableAtSpecificTimeStart.get())} - ${TimeTransformer.toAttribute(questionnaire.completableAtSpecificTimeEnd.get())}`)
+					: (eventTriggered ? Lang.get("must_be_completed_by") : Lang.get("only_at_specific_time")),
 				isActive: () => questionnaire.completableAtSpecificTime.get(),
 				dropdownView:
 					<div class="center">
-						<label>
-							<small>{Lang.getWithColon("from")}</small>
-							<input type="time" {...BindObservable(questionnaire.completableAtSpecificTimeStart, TimeTransformer)} />
-						</label>
+						{!eventTriggered &&
+							<label>
+								<small>{Lang.getWithColon("from")}</small>
+								<input type="time" {...BindObservable(questionnaire.completableAtSpecificTimeStart, TimeTransformer)} />
+							</label>
+						}
 						<label>
 							<small>{Lang.getWithColon("until")}</small>
 							<input type="time" {...BindObservable(questionnaire.completableAtSpecificTimeEnd, TimeTransformer)} />
 						</label>
+						{eventTriggered &&
+							<div><small>{Lang.get("info_event_triggered_end_only")}</small></div>
+						}
 					</div>,
-				enable: () => questionnaire.completableAtSpecificTime.set(true),
+				enable: () => {
+					questionnaire.completableAtSpecificTime.set(true)
+					// Event-triggered questionnaires get an end-only deadline; keep start "open".
+					if (eventTriggered)
+						questionnaire.completableAtSpecificTimeStart.set(-1)
+				},
 				disable: () => questionnaire.completableAtSpecificTime.set(false)
+			},
+			{
+				title: Lang.get("notification_include_deadline"),
+				isActive: () => questionnaire.notificationIncludeDeadline.get(),
+				enable: () => questionnaire.notificationIncludeDeadline.set(true),
+				disable: () => questionnaire.notificationIncludeDeadline.set(false)
 			},
 			{
 				title: Lang.get("script_filter"),

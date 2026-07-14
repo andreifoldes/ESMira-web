@@ -52,10 +52,22 @@ class PushScheduler {
 
 		foreach(($study['questionnaires'] ?? []) as $qi => $q) {
 			$qTitle = (is_string($q['title'] ?? null) && $q['title'] !== '') ? $q['title'] : $studyTitle;
+			$qInternalId     = (int) ($q['internalId'] ?? $qi);
+			$includeDeadline = !empty($q['notificationIncludeDeadline']);
 			$durStartDay = (int) ($q['durationStartingAfterDays'] ?? 0);
 			$durPeriod   = (int) ($q['durationPeriodDays'] ?? 0);
 			$durStart    = (int) ($q['durationStart'] ?? 0);
 			$durEnd      = (int) ($q['durationEnd'] ?? 0);
+
+			// Whether any action trigger carries a signal-time beep. Questionnaires with a
+			// fixed completion window but no beep get a synthetic "window opened" availability
+			// notification below (see the window-open pass after this loop).
+			$hasSignals = false;
+			foreach(($q['actionTriggers'] ?? []) as $atProbe) {
+				foreach(($atProbe['schedules'] ?? []) as $sProbe) {
+					if(!empty($sProbe['signalTimes'])) { $hasSignals = true; break 2; }
+				}
+			}
 
 			foreach(($q['actionTriggers'] ?? []) as $ai => $at) {
 				$action = self::notificationAction($at);
@@ -104,18 +116,60 @@ class PushScheduler {
 									continue;
 								if($durEnd > 0 && $T > $durEnd)
 									continue;
+								// Completion deadline (shared by the base + its reminders): the
+								// completion window closes at this local time-of-day.
+								$baseLocalTod = $T - $offsetMs - $dayMidnightLocal;
+								$deadlineTod  = self::deadlineTod($q, $baseLocalTod);
+								$deadlineUtc  = $deadlineTod === null ? null : $dayMidnightLocal + $deadlineTod + $offsetMs;
+								$displayBody  = self::appendDeadline($body, $includeDeadline, $deadlineTod);
 								if($T > $sinceMs && $T <= $nowMs)
-									$out[] = ['title' => $qTitle, 'body' => $body, 'timestamp' => $T];
+									$out[] = [
+										'type' => 'availability', 'qid' => $qInternalId, 'title' => $qTitle,
+										'body' => $displayBody, 'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+									];
 								for($k = 1; $k <= $reminderCount; $k++) {
 									$rt = $T + $k * $reminderDelayMs;
 									if($rt <= $sinceMs || $rt > $nowMs)
 										continue;
 									if($lastDataSetTime >= $T) // completed since the base — stop nagging
 										continue;
-									$out[] = ['title' => $qTitle, 'body' => 'Reminder: ' . $body, 'timestamp' => $rt];
+									$out[] = [
+										'type' => 'reminder', 'qid' => $qInternalId, 'title' => $qTitle,
+										'body' => $displayBody, 'timestamp' => $rt, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+									];
 								}
 							}
 						}
+					}
+				}
+			}
+
+			// ── Window-open availability for questionnaires with a fixed daily completion
+			// window but no signal-time beep (e.g. "morning diary, complete 08:00–12:00").
+			// Fires once per active day at the window-open time. Event-triggered
+			// questionnaires keep start = -1 (open) and are skipped here — they open on the
+			// event, not on a wall-clock time.
+			$specStart = (int) ($q['completableAtSpecificTimeStart'] ?? -1);
+			if(!empty($q['completableAtSpecificTime']) && $specStart >= 0 && !$hasSignals) {
+				$firstDay = $durStartDay;
+				$maxDay   = $durPeriod > 0 ? ($firstDay + $durPeriod - 1) : PHP_INT_MAX;
+				$fromDay  = max($firstDay, self::dayIndex($sinceMs - $offsetMs, $anchorDayLocal));
+				$availBody = self::firstNotificationBody($q);
+				for($d = $fromDay; $d <= $toDay && $d <= $maxDay; $d++) {
+					$dayMidnightLocal = $anchorDayLocal + $d * self::ONE_DAY;
+					$T = $dayMidnightLocal + $specStart + $offsetMs;
+					if($durStart > 0 && $T < $durStart)
+						continue;
+					if($durEnd > 0 && $T > $durEnd)
+						continue;
+					if($T > $sinceMs && $T <= $nowMs) {
+						$deadlineTod = self::deadlineTod($q, $specStart);
+						$deadlineUtc = $deadlineTod === null ? null : $dayMidnightLocal + $deadlineTod + $offsetMs;
+						$out[] = [
+							'type' => 'availability', 'qid' => $qInternalId, 'title' => $qTitle,
+							'body' => self::appendDeadline($availBody, $includeDeadline, $deadlineTod),
+							'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+						];
 					}
 				}
 			}
@@ -139,6 +193,44 @@ class PushScheduler {
 			}
 		}
 		return null;
+	}
+
+	/** Body of the first notifying action of a questionnaire, or a default availability body. */
+	private static function firstNotificationBody(array $q): string {
+		foreach(($q['actionTriggers'] ?? []) as $at) {
+			$action = self::notificationAction($at);
+			if($action !== null)
+				return $action[0];
+		}
+		return 'A new questionnaire is available.';
+	}
+
+	/**
+	 * The completion deadline as ms-since-local-midnight for a window opening at
+	 * $baseLocalTod, or null when the questionnaire has no meaningful deadline.
+	 * Mirrors the PWA's availability.ts window logic: a per-notification timeout
+	 * takes precedence, else the fixed completion-window end.
+	 */
+	private static function deadlineTod(array $q, int $baseLocalTod): ?int {
+		$timeout = (int) ($q['completableMinutesAfterNotification'] ?? 0);
+		if(!empty($q['completableOncePerNotification']) && $timeout > 0)
+			return min(self::ONE_DAY, $baseLocalTod + $timeout * 60000);
+		if(!empty($q['completableAtSpecificTime'])) {
+			$end = (int) ($q['completableAtSpecificTimeEnd'] ?? -1);
+			if($end >= 0)
+				return $end;
+		}
+		return null;
+	}
+
+	/** Append " Complete by HH:MM." to a body when the questionnaire opts in and a deadline exists. */
+	private static function appendDeadline(string $body, bool $include, ?int $deadlineTod): string {
+		if(!$include || $deadlineTod === null)
+			return $body;
+		$secs = intdiv($deadlineTod, 1000);
+		if($secs >= 86400)
+			$secs = 86340; // clamp end-of-day to 23:59 rather than showing 00:00
+		return $body . ' ' . sprintf('Complete by %s.', gmdate('H:i', $secs));
 	}
 
 	/** Sample `frequency` random times within [start,end] for one day, as UTC ms. */

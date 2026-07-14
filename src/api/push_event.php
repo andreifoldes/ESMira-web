@@ -35,7 +35,13 @@ if(!Main::strictCheckInput($userId)) {
 	echo JsonOutput::error('User is faulty');
 	return;
 }
-if($event !== 'received' && $event !== 'clicked') { // only client-reportable events
+// Client-reportable funnel events. 'received'/'clicked' come from the service worker;
+// 'welcome_confirmed'/'welcome_missed' come from the onboarding confirmation step, where
+// the participant tells us whether the welcome notification actually reached their device
+// (push delivery can't be verified server-side). 'welcome_missed' flags a delivery problem
+// for the researcher's Push panel.
+$allowedEvents = ['received', 'clicked', 'welcome_confirmed', 'welcome_missed'];
+if(!in_array($event, $allowedEvents, true)) {
 	echo JsonOutput::error('Unknown event');
 	return;
 }

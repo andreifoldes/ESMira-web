@@ -143,6 +143,29 @@ export async function reportClientInfo(studyId: number, userId: string): Promise
 }
 
 /**
+ * Report a push funnel event from the app (as opposed to the service worker, which
+ * reports 'received'/'clicked'). Used by the onboarding confirmation step to record
+ * whether the participant actually saw the welcome notification — 'welcome_confirmed'
+ * or 'welcome_missed'. A 'welcome_missed' surfaces a delivery problem in the researcher's
+ * Push panel. Best-effort: never throws or blocks onboarding.
+ */
+export async function reportPushEvent(args: {
+  studyId: number;
+  userId: string;
+  event: 'welcome_confirmed' | 'welcome_missed';
+}): Promise<void> {
+  try {
+    await fetch(`${API_ROOT}api/push_event.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studyId: args.studyId, userId: args.userId, event: args.event }),
+    });
+  } catch {
+    /* best-effort telemetry — must not affect the participant */
+  }
+}
+
+/**
  * Ask the server for this participant's next scheduled reminder time (UTC ms),
  * computed from the study schedule. Returns null if none is upcoming or push is
  * off. Best-effort: never throws (purely informational for the Details panel).

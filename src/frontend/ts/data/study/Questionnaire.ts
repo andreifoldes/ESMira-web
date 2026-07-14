@@ -35,6 +35,10 @@ export class Questionnaire extends DataStructure {
 	public completableAtSpecificTime = this.primitive<boolean>("completableAtSpecificTime", false)
 	public completableAtSpecificTimeStart = this.primitive<number>("completableAtSpecificTimeStart", -1)
 	public completableAtSpecificTimeEnd = this.primitive<number>("completableAtSpecificTimeEnd", -1)
+	// Web push only: when true, the "availability"/"reminder" notification body tells the
+	// participant by when they must complete this questionnaire ("Complete by HH:MM"),
+	// derived from the completion window end (see PushScheduler.php). Off by default.
+	public notificationIncludeDeadline = this.primitive<boolean>("notificationIncludeDeadline", false)
 	public limitToGroup = this.primitive<number>("limitToGroup", 0)
 	public minDataSetsForReward = this.primitive<number>("minDataSetsForReward", 0)
 	public isBackEnabled = this.primitive<boolean>("isBackEnabled", true)

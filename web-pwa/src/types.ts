@@ -169,6 +169,8 @@ export interface EsmiraQuestionnaire {
   completableAtSpecificTime?: boolean;
   completableAtSpecificTimeStart?: number; // ms since midnight, -1 = off
   completableAtSpecificTimeEnd?: number;
+  /** Web push only: include a "Complete by HH:MM" deadline in the reminder body. */
+  notificationIncludeDeadline?: boolean;
   limitCompletionFrequency?: boolean;
   completionFrequencyMinutes?: number;
   actionTriggers?: EsmiraActionTrigger[];

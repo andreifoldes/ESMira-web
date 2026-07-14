@@ -23,6 +23,11 @@ use Throwable;
  * backfills historical reminders.
  */
 class PushSender {
+	// Constant notification tag: successive pushes replace one another on the device, so
+	// the participant never sees more than one ESMira reminder at a time. The service
+	// worker also uses it as the default tag.
+	const REMINDER_TAG = 'esmira-reminder';
+
 	public static function run(): array {
 		$publicKey  = Configs::get('vapid_public_key');
 		$privateKey = Configs::get('vapid_private_key');
@@ -95,7 +100,11 @@ class PushSender {
 				$realized  = (is_array($state) && isset($state['realized']) && is_array($state['realized'])) ? $state['realized'] : [];
 
 				$occurrences = PushScheduler::computeDueOccurrences($study, $anchor, $tz, $cursor, $now, $lastDataSetTime, $realized);
-				foreach($occurrences as $occ) {
+				// Coalesce everything due for this participant in this run into ONE push so
+				// clients are never flooded. The constant tag (REMINDER_TAG) additionally makes
+				// each successive push replace the previous one, so at most one is ever visible.
+				$payload = self::buildCoalescedPayload($studyId, $userId, $study, $occurrences);
+				if($payload !== null) {
 					try {
 						$sub = Subscription::create([
 							'endpoint' => $data['subscription']['endpoint'],
@@ -104,18 +113,12 @@ class PushSender {
 								'auth'   => $data['subscription']['keys']['auth'] ?? '',
 							],
 						]);
-						$webPush->queueNotification($sub, json_encode([
-							'title' => $occ['title'],
-							'body'  => $occ['body'],
-							'url'   => '/pwa/',
-							'sid'   => $studyId, // so the SW can report received/clicked receipts
-							'uid'   => $userId,
-						]));
+						$webPush->queueNotification($sub, json_encode($payload));
 						$endpointMeta[$data['subscription']['endpoint']] = ['s' => $studyId, 'u' => $userId];
 						$queued++;
 					}
 					catch(Throwable $e) {
-						/* malformed subscription — skip this occurrence */
+						/* malformed subscription — skip */
 					}
 				}
 				// Advance the cursor and persist realized random times (so they stay
@@ -193,11 +196,13 @@ class PushSender {
 						],
 					]);
 					$webPush->queueNotification($sub, json_encode([
-						'title' => $title,
-						'body'  => $body,
-						'url'   => '/pwa/',
-						'sid'   => $studyId,
-						'uid'   => $userId,
+						'title'    => $title,
+						'body'     => $body,
+						'url'      => '/pwa/',
+						'tag'      => self::REMINDER_TAG,
+						'renotify' => true,
+						'sid'      => $studyId,
+						'uid'      => $userId,
 					]));
 					$endpointUser[$data['subscription']['endpoint']] = $userId;
 					$queued++;
@@ -258,11 +263,13 @@ class PushSender {
 				],
 			]);
 			$webPush->queueNotification($sub, json_encode([
-				'title' => $title,
-				'body'  => $body,
-				'url'   => '/pwa/',
-				'sid'   => $studyId,
-				'uid'   => $userId,
+				'title'    => $title,
+				'body'     => $body,
+				'url'      => '/pwa/',
+				'tag'      => self::REMINDER_TAG,
+				'renotify' => true,
+				'sid'      => $studyId,
+				'uid'      => $userId,
 			]));
 		}
 		catch(Throwable $e) {
@@ -278,6 +285,76 @@ class PushSender {
 				self::removeSubscriptionByEndpoint($report->getEndpoint());
 		}
 		return ['queued' => 1, 'succeeded' => $succeeded];
+	}
+
+	/**
+	 * Collapse a participant's due occurrences into a single push payload, or null if
+	 * none are due. Keeps one entry per questionnaire (the most recent occurrence), and
+	 * carries per-item {qid, windowStart, deadline, title, body} so the service worker
+	 * can drop already-completed questionnaires and re-render the remaining count.
+	 *
+	 * @param array $occurrences items from PushScheduler::computeDueOccurrences
+	 */
+	private static function buildCoalescedPayload(int $studyId, string $userId, array $study, array $occurrences): ?array {
+		if(empty($occurrences))
+			return null;
+
+		// qid → completableOnce, so the service worker can also suppress a one-shot
+		// questionnaire that was completed on an earlier day (windowStart wouldn't catch that).
+		$onceByQid = [];
+		foreach(($study['questionnaires'] ?? []) as $qi => $q) {
+			$onceByQid[(int) ($q['internalId'] ?? $qi)] = !empty($q['completableOnce']);
+		}
+
+		// One entry per questionnaire — keep the most recent (a reminder supersedes its base).
+		$byQid = [];
+		foreach($occurrences as $occ) {
+			$qid = (int) ($occ['qid'] ?? 0);
+			if(!isset($byQid[$qid]) || (int) $occ['timestamp'] > (int) $byQid[$qid]['timestamp'])
+				$byQid[$qid] = $occ;
+		}
+
+		$items = [];
+		$anyReminder = false;
+		foreach($byQid as $occ) {
+			if(($occ['type'] ?? '') === 'reminder')
+				$anyReminder = true;
+			$qid = (int) ($occ['qid'] ?? 0);
+			$items[] = [
+				'qid'         => $qid,
+				'windowStart' => (int) ($occ['windowStart'] ?? $occ['timestamp']),
+				'deadline'    => isset($occ['deadline']) ? $occ['deadline'] : null,
+				'once'        => (bool) ($onceByQid[$qid] ?? false),
+				'title'       => (string) ($occ['title'] ?? 'ESMira'),
+				'body'        => (string) ($occ['body'] ?? ''),
+			];
+		}
+
+		$count = count($items);
+		$studyTitle = (is_string($study['title'] ?? null) && $study['title'] !== '') ? $study['title'] : 'ESMira';
+		if($count === 1) {
+			$title = $items[0]['title'];
+			$body  = $items[0]['body'];
+		}
+		else {
+			$title = $studyTitle;
+			$body  = sprintf('You have %d questionnaires to complete.', $count);
+		}
+
+		return [
+			'title'        => $title,
+			'body'         => $body,
+			'url'          => '/pwa/',
+			'tag'          => self::REMINDER_TAG,
+			'renotify'     => true,
+			'type'         => $anyReminder ? 'reminder' : 'availability',
+			'sid'          => $studyId, // so the SW can report received/clicked receipts
+			'uid'          => $userId,
+			'count'        => $count,
+			'items'        => $items,
+			// The SW uses this when it drops some completed items and must re-count.
+			'bodyTemplate' => 'You have %d questionnaires to complete.',
+		];
 	}
 
 	/** Numeric study folders under the studies root. */
