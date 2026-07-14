@@ -1,21 +1,20 @@
 /**
  * AudioRecorder — a modal voice-memo recorder for `record_audio` questions.
  *
- * Matches the "New Diary" design: a red REC dot + `MM:SS / max` timer, a live
- * waveform, and Redo / Pause-Resume / Save controls. Recording starts as soon as
- * the sheet opens (mic permission is requested up front). "Save" stops and commits
- * the recording; the parent persists the bytes and advances the survey. Closing
- * (X / backdrop) discards without committing.
+ * Flow: recording (with live waveform + REC timer) → Stop → review (play back the
+ * clip before committing) → Save. Redo restarts at any point; the X / backdrop
+ * discards without committing. Recording begins as soon as the sheet opens (mic
+ * permission is requested up front).
  *
- * Capture uses MediaRecorder; the waveform is driven by a Web Audio AnalyserNode
- * sampled on an interval (cheaper and steadier than a per-frame rAF for a handful
- * of bars). The recorded container (WebM on Chrome/Android, MP4 on Safari/iOS)
- * satisfies the server's `/video/i` mime check in file_uploads.php.
+ * Capture uses MediaRecorder; the live waveform is driven by a Web Audio
+ * AnalyserNode sampled on an interval. The recorded container (WebM on
+ * Chrome/Android, MP4 on Safari/iOS) satisfies the server's `/video/i` mime check
+ * in file_uploads.php. Review playback uses a plain <audio> element on a blob URL.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { X, Pause, Mic, RotateCcw, Check } from 'lucide-react';
+import { X, Pause, Play, Mic, Square, RotateCcw, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { newAudioIdentifier } from '../lib/audioUploads';
 import type { PreloadedQuestion } from '../types';
@@ -23,7 +22,7 @@ import type { PreloadedQuestion } from '../types';
 const BAR_COUNT = 44;
 const SAMPLE_MS = 90; // waveform sample + timer tick cadence
 
-type Status = 'starting' | 'recording' | 'paused' | 'denied' | 'error';
+type Status = 'starting' | 'recording' | 'paused' | 'review' | 'denied' | 'error';
 
 function pickMimeType(): string {
   if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
@@ -38,6 +37,18 @@ function fmt(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** First line of the (rich-text/HTML) prompt — used as the compact modal title. */
+function firstLine(html: string): string {
+  const text = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|h[1-6]|li|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&');
+  const line = text.split('\n').map((s) => s.trim()).find(Boolean);
+  return line || 'Voice memo';
+}
+
 interface Props {
   question: PreloadedQuestion;
   reduceMotion: boolean;
@@ -47,11 +58,16 @@ interface Props {
 
 export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Props) {
   const maxSec = question.max_recording_seconds ?? 300;
-  const title = (question.text || 'Voice memo').replace(/<[^>]+>/g, '').trim() || 'Voice memo';
+  const title = firstLine(question.text || '');
 
   const [status, setStatus] = useState<Status>('starting');
   const [elapsed, setElapsed] = useState(0);
   const [bars, setBars] = useState<number[]>(() => new Array(BAR_COUNT).fill(0));
+  // Review-phase state:
+  const [reviewUrl, setReviewUrl] = useState<string | null>(null);
+  const [reviewDur, setReviewDur] = useState(0); // recorded length (s)
+  const [playPos, setPlayPos] = useState(0);      // playback position (s)
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -64,6 +80,8 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
   const barsRef = useRef<number[]>(new Array(BAR_COUNT).fill(0));
   const statusRef = useRef<Status>('starting');
   const committedRef = useRef(false);
+  const recordedBlobRef = useRef<Blob | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   statusRef.current = status;
 
   const elapsedMs = useCallback(
@@ -75,16 +93,22 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
   }, []);
 
-  const cleanup = useCallback(() => {
-    stopTick();
+  const stopMedia = useCallback(() => {
     try { recRef.current?.state !== 'inactive' && recRef.current?.stop(); } catch { /* already stopped */ }
-    recRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     try { void ctxRef.current?.close(); } catch { /* ignore */ }
     ctxRef.current = null;
     analyserRef.current = null;
-  }, [stopTick]);
+  }, []);
+
+  const cleanup = useCallback(() => {
+    stopTick();
+    stopMedia();
+    recRef.current = null;
+    try { audioRef.current?.pause(); } catch { /* ignore */ }
+    if (reviewUrl) URL.revokeObjectURL(reviewUrl);
+  }, [stopTick, stopMedia, reviewUrl]);
 
   const sample = useCallback(() => {
     const analyser = analyserRef.current;
@@ -112,7 +136,7 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
       sample();
       const sec = elapsedMs() / 1000;
       setElapsed(sec);
-      if (sec >= maxSec) commitRef.current?.(); // hit the cap → auto-save
+      if (sec >= maxSec) stopRef.current?.(); // hit the cap → finish to review
     }, SAMPLE_MS);
   }, [elapsedMs, maxSec, sample, stopTick]);
 
@@ -151,26 +175,30 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
     }
   }, [beginRecorder]);
 
-  const commit = useCallback(() => {
-    if (committedRef.current) return;
+  // Finish recording → build the clip and enter the review/playback phase.
+  const stop = useCallback(() => {
     const rec = recRef.current;
-    if (!rec) { onCancel(); return; }
-    committedRef.current = true;
+    if (!rec) return;
     stopTick();
+    const dur = elapsedMs() / 1000;
     const finalize = () => {
       const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      try { void ctxRef.current?.close(); } catch { /* ignore */ }
-      onSave(newAudioIdentifier(), blob);
+      recordedBlobRef.current = blob;
+      stopMedia(); // release the mic — recording is done
+      setReviewDur(dur);
+      setPlayPos(0);
+      setIsPlaying(false);
+      setReviewUrl(URL.createObjectURL(blob));
+      setStatus('review');
     };
     rec.onstop = finalize;
     if (rec.state !== 'inactive') rec.stop();
     else finalize();
-  }, [onCancel, onSave, stopTick]);
+  }, [elapsedMs, stopMedia, stopTick]);
 
-  // Let the interval reach commit without a stale closure.
-  const commitRef = useRef<() => void>(() => {});
-  commitRef.current = commit;
+  // Let the interval reach stop() without a stale closure.
+  const stopRef = useRef<() => void>(() => {});
+  stopRef.current = stop;
 
   const togglePause = useCallback(() => {
     const rec = recRef.current;
@@ -187,13 +215,39 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
     }
   }, [elapsedMs]);
 
+  const playPause = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) {
+      if (a.ended || a.currentTime >= reviewDur) a.currentTime = 0;
+      void a.play();
+      setIsPlaying(true);
+    } else {
+      a.pause();
+      setIsPlaying(false);
+    }
+  }, [reviewDur]);
+
   const redo = useCallback(() => {
-    const rec = recRef.current;
-    if (rec && rec.state !== 'inactive') { rec.onstop = null; try { rec.stop(); } catch { /* ignore */ } }
-    const stream = streamRef.current;
-    if (stream) beginRecorder(stream);
-    else void start();
-  }, [beginRecorder, start]);
+    try { audioRef.current?.pause(); } catch { /* ignore */ }
+    if (reviewUrl) { URL.revokeObjectURL(reviewUrl); setReviewUrl(null); }
+    recordedBlobRef.current = null;
+    setIsPlaying(false);
+    setPlayPos(0);
+    setReviewDur(0);
+    setStatus('starting');
+    void start(); // re-acquire mic + record again
+  }, [reviewUrl, start]);
+
+  const commit = useCallback(() => {
+    if (committedRef.current) return;
+    const blob = recordedBlobRef.current;
+    if (!blob) { onCancel(); return; }
+    committedRef.current = true;
+    try { audioRef.current?.pause(); } catch { /* ignore */ }
+    if (reviewUrl) URL.revokeObjectURL(reviewUrl);
+    onSave(newAudioIdentifier(), blob);
+  }, [onCancel, onSave, reviewUrl]);
 
   // Start on mount; tear everything down on unmount (covers X/backdrop cancel).
   useEffect(() => {
@@ -204,7 +258,10 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
 
   const recording = status === 'recording';
   const paused = status === 'paused';
-  const active = recording || paused;
+  const review = status === 'review';
+  const recordingPhase = recording || paused;
+  const playedFrac = review && reviewDur > 0 ? Math.min(1, playPos / reviewDur) : 0;
+  const playedBars = Math.round(playedFrac * BAR_COUNT);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -261,7 +318,7 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
           </div>
         ) : (
           <>
-            {/* Timer */}
+            {/* Timer: recording counts up to the max; review shows playback position. */}
             <div className="mt-2 flex items-center justify-center gap-2 tabular-nums">
               <span
                 className={cn(
@@ -271,24 +328,52 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
                 )}
                 aria-hidden="true"
               />
-              <span className="text-base font-semibold text-on-surface">{fmt(elapsed)}</span>
-              <span className="text-base text-on-surface-variant">/ {fmt(maxSec)}</span>
+              {review ? (
+                <>
+                  <span className="text-base font-semibold text-on-surface">{fmt(playPos)}</span>
+                  <span className="text-base text-on-surface-variant">/ {fmt(reviewDur)}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-base font-semibold text-on-surface">{fmt(elapsed)}</span>
+                  <span className="text-base text-on-surface-variant">/ {fmt(maxSec)}</span>
+                </>
+              )}
             </div>
 
-            {/* Waveform */}
+            {/* Waveform: live while recording; a play-progress fill while reviewing. */}
             <div className="mt-5 mb-6 flex items-center justify-center gap-[3px] h-20" aria-hidden="true">
-              {bars.map((amp, i) => (
-                <div
-                  key={i}
-                  className={cn('w-[3px] rounded-full transition-[height] duration-75', active ? 'bg-primary' : 'bg-outline-variant')}
-                  style={{ height: `${Math.max(4, amp * 72)}px`, opacity: active ? 0.55 + amp * 0.45 : 0.4 }}
-                />
-              ))}
-              {/* Recording cursor at the leading (right) edge */}
-              <div className={cn('w-[2px] h-16 rounded-full ml-0.5', recording ? 'bg-primary' : 'bg-transparent')} />
+              {bars.map((amp, i) => {
+                const played = review && i < playedBars;
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      'w-[3px] rounded-full transition-[height] duration-75',
+                      recordingPhase ? 'bg-primary' : review ? (played ? 'bg-primary' : 'bg-outline-variant') : 'bg-outline-variant',
+                    )}
+                    style={{
+                      height: `${Math.max(4, amp * 72)}px`,
+                      opacity: recordingPhase ? 0.55 + amp * 0.45 : review ? (played ? 1 : 0.5) : 0.4,
+                    }}
+                  />
+                );
+              })}
+              {recording && <div className="w-[2px] h-16 rounded-full ml-0.5 bg-primary" />}
             </div>
 
-            {/* Controls: Redo | Pause/Resume | Save */}
+            {/* Hidden player for the review phase. */}
+            {reviewUrl && (
+              <audio
+                ref={audioRef}
+                src={reviewUrl}
+                className="hidden"
+                onTimeUpdate={(e) => setPlayPos(e.currentTarget.currentTime)}
+                onEnded={() => { setIsPlaying(false); setPlayPos(reviewDur); }}
+              />
+            )}
+
+            {/* Controls */}
             <div className="flex items-center justify-between">
               <button
                 onClick={redo}
@@ -299,26 +384,46 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
                 <span className="text-xs font-medium">Redo</span>
               </button>
 
+              {/* Center: Pause/Resume while recording, Play/Pause while reviewing. */}
               <button
-                onClick={togglePause}
+                onClick={review ? playPause : togglePause}
                 disabled={status === 'starting'}
-                aria-label={recording ? 'Pause' : 'Resume'}
+                aria-label={review ? (isPlaying ? 'Pause playback' : 'Play recording') : recording ? 'Pause' : 'Resume'}
                 className="h-16 w-24 rounded-full border-2 border-outline-variant/60 flex items-center justify-center text-primary disabled:opacity-40 hover:bg-surface-container-high active:scale-95 transition"
               >
-                {recording
-                  ? <Pause size={26} aria-hidden="true" className="fill-current" />
-                  : <Mic size={26} aria-hidden="true" />}
+                {review
+                  ? (isPlaying ? <Pause size={26} aria-hidden="true" className="fill-current" /> : <Play size={26} aria-hidden="true" className="fill-current" />)
+                  : recording
+                    ? <Pause size={26} aria-hidden="true" className="fill-current" />
+                    : <Mic size={26} aria-hidden="true" />}
               </button>
 
-              <button
-                onClick={commit}
-                disabled={status === 'starting'}
-                className="flex flex-col items-center gap-1 text-primary font-semibold disabled:opacity-40 active:scale-95 transition w-16"
-              >
-                <Check size={22} aria-hidden="true" />
-                <span className="text-xs">Save</span>
-              </button>
+              {/* Right: Stop finishes recording → review; Save commits the clip. */}
+              {review ? (
+                <button
+                  onClick={commit}
+                  className="flex flex-col items-center gap-1 text-primary font-semibold active:scale-95 transition w-16"
+                >
+                  <Check size={22} aria-hidden="true" />
+                  <span className="text-xs">Save</span>
+                </button>
+              ) : (
+                <button
+                  onClick={stop}
+                  disabled={status === 'starting'}
+                  className="flex flex-col items-center gap-1 text-on-surface font-semibold disabled:opacity-40 active:scale-95 transition w-16"
+                >
+                  <Square size={20} aria-hidden="true" className="fill-current" />
+                  <span className="text-xs">Stop</span>
+                </button>
+              )}
             </div>
+
+            {review && (
+              <p className="mt-4 text-center text-xs text-on-surface-variant">
+                Listen back, then Save — or Redo to record again.
+              </p>
+            )}
           </>
         )}
       </motion.div>
