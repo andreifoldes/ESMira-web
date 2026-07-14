@@ -570,22 +570,52 @@ export default function App() {
     }
   };
 
-  // ── Sign out: clear this study's saved identity/consent, restart ──
+  // ── Sign out: a COMPLETE reset of this device back to first-visit state ──
+  // Wipes all local ESMira data (identity, consent, onboarding flags, enrollment,
+  // completions, queues, appearance prefs), unsubscribes push, and drops the IndexedDB
+  // completion mirror, every Cache Storage entry, and the service worker itself. This
+  // guarantees the next sign-up runs the full onboarding again (notifications gate +
+  // welcome push + tutorial) instead of being treated as a returning device.
   const signOut = () => {
-    if (!window.confirm("Sign out? You'll need to enter your name again to continue the study.")) return;
-    if (study) {
-      // Release the PID lock so the participant can re-enrol on a different device.
-      const deviceToken = localStorage.getItem('esmira_device_token') || '';
-      if (deviceToken && userId) {
-        void releasePidLock(String(study.id), userId, deviceToken);
+    if (!window.confirm("Sign out and reset this device? This clears everything stored here — you'll start sign-up again from the beginning.")) return;
+    // Capture identity before wiping so we can free the PID lock server-side.
+    const sid = study ? String(study.id) : '';
+    const uid = userIdRef.current;
+    const deviceToken = localStorage.getItem('esmira_device_token') || '';
+    void (async () => {
+      if (sid && uid && deviceToken) {
+        try { await releasePidLock(sid, uid, deviceToken); } catch { /* best-effort */ }
       }
-      localStorage.removeItem(`esmira_participant_${study.id}`);
-      localStorage.removeItem(`esmira_consent_${study.id}`);
-      // Drop the assigned id too — a fresh visitor gets a new one (an invite-link
-      // `uid` re-resolves to the same id on reload, which is the intended behaviour).
-      localStorage.removeItem(`esmira_userid_${study.id}`);
-    }
-    window.location.reload();
+      // Drop the push subscription (bound to the SW registration) so no stale endpoint lingers.
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) await sub.unsubscribe();
+        }
+      } catch { /* best-effort */ }
+      // Clear all web storage.
+      try { localStorage.clear(); } catch { /* ignore */ }
+      try { sessionStorage.clear(); } catch { /* ignore */ }
+      // Delete the completion-mirror IndexedDB.
+      try { indexedDB.deleteDatabase('esmira_state'); } catch { /* ignore */ }
+      // Delete every Cache Storage entry (app-shell precache, study definition, fonts).
+      try {
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        }
+      } catch { /* ignore */ }
+      // Unregister the service worker so it re-installs clean on next load.
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+        }
+      } catch { /* ignore */ }
+      // Restart — a fresh navigation with no SW/caches/storage = first-visit state.
+      window.location.reload();
+    })();
   };
 
   // ── Contact: send an anonymous message to the research team ──
