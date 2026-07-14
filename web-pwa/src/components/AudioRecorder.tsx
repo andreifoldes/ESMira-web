@@ -276,12 +276,14 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
       >
         {/* Grab handle + header */}
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-outline-variant/50 sm:hidden" />
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-on-surface truncate pr-2">{title}</h2>
+        {/* Title centered relative to the modal width; close button overlaid at the
+            right so it doesn't offset the centering. px-9 keeps a long title clear of it. */}
+        <div className="relative flex items-center justify-center min-h-8">
+          <h2 className="text-lg font-bold text-on-surface text-center truncate px-9">{title}</h2>
           <button
             onClick={onCancel}
             aria-label="Close"
-            className="p-1.5 -mr-1.5 rounded-full text-on-surface-variant hover:bg-surface-container-high active:scale-95 transition"
+            className="absolute right-0 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-on-surface-variant hover:bg-surface-container-high active:scale-95 transition"
           >
             <X size={22} aria-hidden="true" />
           </button>
@@ -421,7 +423,7 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
 
             {review && (
               <p className="mt-4 text-center text-xs text-on-surface-variant">
-                Listen back, then Save — or Redo to record again.
+                You can play your recording back before saving, or Redo to record again.
               </p>
             )}
           </>
