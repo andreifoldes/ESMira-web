@@ -1,0 +1,52 @@
+name: Accessibility audit (participant PWA)
+
+# Automated WCAG 2.2 A/AA gate for the participant PWA. Runs the axe-core +
+# Playwright harness (web-pwa/a11y) against the real production build, driving
+# every question type in light + dark themes. Fully offline (fixture study), so
+# it needs no VPN or live server. Mirrors the hard gate baked into deploy.sh.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'web-pwa/**'
+      - '.github/workflows/accessibility.yml'
+  pull_request:
+    paths:
+      - 'web-pwa/**'
+      - '.github/workflows/accessibility.yml'
+  workflow_dispatch:
+
+jobs:
+  a11y:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build the participant PWA
+        working-directory: web-pwa
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install audit harness + Chromium
+        working-directory: web-pwa/a11y
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run accessibility audit (WCAG 2.2 A/AA)
+        working-directory: web-pwa/a11y
+        run: node audit.mjs
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-report
+          path: web-pwa/a11y/report/
+          if-no-files-found: ignore

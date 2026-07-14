@@ -203,6 +203,21 @@
   scrollbar-color: var(--sys-outline-variant) transparent;
 }
 
+/* Honour the OS "reduce motion" setting for CSS-driven motion (Tailwind
+   transition, animation and scale utilities). The in-app "Reduce motion"
+   toggle only gates the framer-motion animations, so this covers everything
+   else and applies before the participant reaches Settings. (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Rich text (ESMira `text` items, incl. cognitive link-outs) */
 .esmira-rich a {
   color: var(--sys-primary);

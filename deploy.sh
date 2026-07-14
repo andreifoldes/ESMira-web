@@ -35,6 +35,22 @@ echo "=== Building locally (webpack dist/ + participant PWA) ==="
 # run after (it writes dist/pwa). build:all does both in the right order.
 npm run build:all
 
+# ── Accessibility gate (hard) ────────────────────────────────────────────────
+# Audit the participant PWA we just built against WCAG 2.2 A/AA (axe-core driving
+# the real build through every question type in light + dark). A critical or
+# serious violation aborts the deploy (set -e). Runs fully offline against a
+# fixture study, so no VPN/server is needed. Skip with A11Y_SKIP=1 in an
+# emergency; tune gate severities with A11Y_FAIL_ON (default critical,serious).
+if [ "${A11Y_SKIP:-0}" = "1" ]; then
+  echo "=== Accessibility gate SKIPPED (A11Y_SKIP=1) ==="
+else
+  echo "=== Accessibility gate (WCAG 2.2, participant PWA) ==="
+  ( cd web-pwa/a11y \
+      && { [ -d node_modules ] || npm install --no-audit --no-fund; } \
+      && node audit.mjs )
+  echo "    accessibility gate passed"
+fi
+
 echo "=== Syncing Docker build context to $HOST:$REMOTE_DIR/build ==="
 ssh "$HOST" "mkdir -p '$REMOTE_DIR/build'"
 rsync -avz --delete \

@@ -85,4 +85,17 @@ export default defineConfig({
       },
     },
   },
+  // `vite preview` serves the production build (dist/pwa). It needs the same API
+  // proxy as dev so a preview — and the accessibility audit that drives it
+  // (see a11y/) — can load real studies through /esmira/api.
+  preview: {
+    port: 4318,
+    proxy: {
+      '/esmira/api': {
+        target: ESMIRA,
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 });
