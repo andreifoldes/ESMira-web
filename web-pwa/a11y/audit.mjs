@@ -105,26 +105,74 @@ async function scan(page, screen, theme) {
 }
 
 // ── preview server ──────────────────────────────────────────────────────────
+// Spawned detached so teardown can signal the whole process group (npm parent +
+// its vite child). A lingering vite grandchild on $PORT is what makes repeated
+// runs flaky: the next run's --strictPort child exits immediately (port taken),
+// but the stale server keeps answering the readiness probe, gets adopted, then
+// dies mid-audit → ERR_CONNECTION_REFUSED. Group-kill + fail-fast close that gap.
 let preview = null;
+let previewExited = false;
 async function startPreview() {
   if (process.env.A11Y_BASE_URL) { log(`▶ Using running server at ${BASE}`); return; }
   log(`▶ Starting vite preview on :${PORT} …`);
+  previewExited = false;
   preview = spawn('npm', ['run', 'preview', '--', '--port', String(PORT), '--strictPort'], {
     cwd: WEB_PWA,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  preview.on('exit', (code) => {
+    previewExited = true;
+    if (code) process.stderr.write(`vite preview exited (code ${code})\n`);
   });
   preview.stdout.on('data', (d) => { if (/error/i.test(String(d))) process.stderr.write(d); });
   preview.stderr.on('data', (d) => process.stderr.write(d));
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
+    // Our child exiting before it's ready almost always means $PORT is held by a
+    // stale server — fail loudly instead of adopting it and crashing later.
+    if (previewExited) throw new Error(`vite preview exited before becoming ready — is :${PORT} already in use?`);
     try { const r = await fetch(APP_URL()); if (r.ok) { log('  preview ready'); return; } } catch { /* not up yet */ }
     await sleep(500);
   }
   throw new Error('vite preview did not become ready within 60s');
 }
 function stopPreview() {
-  if (preview && !preview.killed) { try { preview.kill('SIGTERM'); } catch { /* ignore */ } }
+  if (!preview || previewExited) return;
+  // Negative pid → signal the whole process group (npm parent + vite child), so
+  // no vite grandchild survives to poison the next run.
+  try { process.kill(-preview.pid, 'SIGTERM'); }
+  catch { try { preview.kill('SIGTERM'); } catch { /* ignore */ } }
+}
+
+/** Restart the preview server if it has died (OOM, transient crash). No-op when
+ *  auditing an externally-provided A11Y_BASE_URL — that server isn't ours. */
+async function ensurePreview() {
+  if (process.env.A11Y_BASE_URL) return;
+  if (!preview || previewExited) {
+    log('  ⚠ preview server is down — restarting …');
+    await startPreview();
+  }
+}
+
+/** page.goto with resilience to a transient loss of the preview server: on a
+ *  network-level failure, make sure the server is up (restart if needed) and
+ *  retry. A single blip mid-run must not abort an otherwise-clean audit. */
+async function gotoApp(page, qs = '', opts = { waitUntil: 'domcontentloaded' }) {
+  const url = APP_URL(qs);
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { return await page.goto(url, opts); }
+    catch (e) {
+      lastErr = e;
+      if (!/net::|ERR_CONNECTION|ERR_EMPTY_RESPONSE|ECONNREFUSED/i.test(String(e))) throw e;
+      log(`  ⚠ navigation failed (attempt ${attempt}/3) for ${url}: ${String(e.message || e).split('\n')[0]}`);
+      await ensurePreview();
+      await sleep(500 * attempt);
+    }
+  }
+  throw lastErr;
 }
 
 // ── request interception (fixture mode = fully offline & deterministic) ───────
@@ -153,7 +201,7 @@ const readyBtn = (page) => page.getByRole('button', { name: /^I'm ready/ });
  * straight to the tutorial.
  */
 async function reachTutorial(page) {
-  await page.goto(APP_URL(`?key=${encodeURIComponent(KEY)}&tutorial=1`), { waitUntil: 'domcontentloaded' });
+  await gotoApp(page, `?key=${encodeURIComponent(KEY)}&tutorial=1`);
   if (await present(readyBtn(page), 3500)) return; // returning visit → already at tutorial
   await tryClick(page.getByRole('button', { name: 'I consent' }), 5000);
   if (await present(page.getByPlaceholder('Enter your name'), 3500)) {
@@ -169,7 +217,7 @@ async function reachTutorial(page) {
  *  in every theme via class-toggling, then leaves the app at the tutorial. */
 async function auditOnboarding(page) {
   log(`\n▶ Auditing onboarding (consent → name → notifications)`);
-  await page.goto(APP_URL(`?key=${encodeURIComponent(KEY)}&tutorial=1`), { waitUntil: 'domcontentloaded' });
+  await gotoApp(page, `?key=${encodeURIComponent(KEY)}&tutorial=1`);
   if (await present(page.getByRole('button', { name: 'I consent' }), 6000)) {
     for (const theme of THEMES) await scan(page, 'consent', theme);
     await page.getByRole('button', { name: 'I consent' }).click();
@@ -366,7 +414,7 @@ function writeReport() {
 
   try {
     log(`\n▶ Auditing invite-code screen`);
-    await page.goto(APP_URL(), { waitUntil: 'domcontentloaded' });
+    await gotoApp(page);
     await present(page.getByRole('button', { name: 'Continue' }), 8000);
     for (const theme of THEMES) await scan(page, 'enter-code', theme);
 
