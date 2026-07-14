@@ -4,21 +4,18 @@ name: Accessibility audit (participant PWA)
 # Playwright harness (web-pwa/a11y) against the real production build, driving
 # every question type in light + dark themes. Fully offline (fixture study), so
 # it needs no VPN or live server. Mirrors the hard gate baked into deploy.sh.
+#
+# Runs at release time only (not on every push) to conserve Actions minutes:
+# on a published GitHub release, and on demand via the Actions tab. Day-to-day
+# enforcement is the deploy.sh gate, which runs the same audit on every deploy.
 
 on:
-  push:
-    branches: [main, develop]
-    paths:
-      - 'web-pwa/**'
-      - '.github/workflows/accessibility.yml'
-  pull_request:
-    paths:
-      - 'web-pwa/**'
-      - '.github/workflows/accessibility.yml'
+  release:
+    types: [published]
   workflow_dispatch:
 
-# Cancel an in-progress run when a newer commit lands on the same ref, so rapid
-# pushes don't stack up Actions minutes (matters on metered private repos).
+# One run per ref; a newer trigger cancels an in-progress run (avoids stacked
+# Actions minutes on metered private repos).
 concurrency:
   group: a11y-${{ github.ref }}
   cancel-in-progress: true

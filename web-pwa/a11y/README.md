@@ -58,5 +58,6 @@ A human-readable summary and the full machine-readable results are written to
 
 `deploy.sh` runs this audit right after `npm run build:all` and before anything
 is synced to the server; a critical/serious violation aborts the deploy. Set
-`A11Y_SKIP=1` to bypass it in an emergency. CI runs the same audit on PWA changes
-(`.github/workflows/accessibility.yml`).
+`A11Y_SKIP=1` to bypass it in an emergency. CI runs the same audit at release
+time (`.github/workflows/accessibility.yml`, on a published GitHub release or
+on demand) — deploy.sh remains the day-to-day enforcement.
