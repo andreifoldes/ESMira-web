@@ -87,6 +87,36 @@ export async function subscribeToPush(args: {
 }
 
 /**
+ * Ask the server to send this participant an immediate welcome/test web push, right
+ * after they enable notifications during onboarding. The push is sent only to this
+ * user's own subscription and its title/body are generated server-side. Returns the
+ * number of subscriptions the push service accepted (0 on any failure), so the caller
+ * can fall back to a local notification. Best-effort: never throws.
+ */
+export async function sendWelcomePush(args: {
+  study: EsmiraStudy;
+  serverVersion: number;
+  userId: string;
+}): Promise<number> {
+  try {
+    const resp = await fetch(`${API_ROOT}api/push_test.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: args.userId,
+        studyId: args.study.id,
+        serverVersion: args.serverVersion,
+      }),
+    });
+    if (!resp.ok) return 0;
+    const env = await resp.json();
+    return env?.success ? Number(env.dataset?.succeeded ?? 0) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Best-effort telemetry for the researcher's Push panel: report whether this session is
  * running installed-to-home-screen (display-mode standalone) vs a browser tab, plus a
  * coarse device class. Latest report per participant wins server-side. Aggregate-only.

@@ -48,3 +48,28 @@ export async function ensurePushSubscription(vapidPublicKey: string): Promise<Pu
     }));
   return sub.toJSON();
 }
+
+/**
+ * Show a notification locally via the active service worker — no server round-trip.
+ * Used as a fallback for the onboarding welcome when a real server push can't be sent
+ * or confirmed (e.g. VAPID not configured, or the push service rejected it), so the
+ * participant still gets visible confirmation that notifications work. Requires
+ * notification permission to already be granted. Best-effort: resolves false if it
+ * can't be shown. Works identically on Chrome and Safari (installed PWA on iOS).
+ */
+export async function showLocalNotification(title: string, body: string): Promise<boolean> {
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(title, {
+      body,
+      icon: '/pwa/pwa-192x192.png',
+      badge: '/pwa/pwa-192x192.png',
+      tag: 'esmira-welcome',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

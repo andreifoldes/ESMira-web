@@ -23,12 +23,12 @@ import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
-  subscribeToPush, fetchNextNotification, logEvent, reportClientInfo,
+  subscribeToPush, fetchNextNotification, logEvent, reportClientInfo, sendWelcomePush,
   startWearableConnect, fetchWearableStatus, disconnectWearable,
   claimPidLock, releasePidLock, getOrCreateDeviceToken,
 } from './lib/esmiraApi';
 import type { UploadProtocolEntry } from './lib/esmiraApi';
-import { ensurePushSubscription, isPushSupported } from './lib/push';
+import { ensurePushSubscription, isPushSupported, showLocalNotification } from './lib/push';
 import {
   computeAvailability, summarize, ensureEnrollment, loadCompletions, recordCompletion,
   type Availability,
@@ -40,7 +40,7 @@ import { InstallPrompt } from './components/InstallPrompt';
 import { WearablesPanel } from './components/WearablesPanel';
 import { saveRecording } from './lib/audioUploads';
 
-type Phase = 'loading' | 'error' | 'consent' | 'name' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict';
+type Phase = 'loading' | 'error' | 'consent' | 'name' | 'notifications' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict';
 
 /** localStorage key holding the last study invite code that loaded successfully,
  *  so an installed home-screen launch (which carries no ?key=) reopens it. */
@@ -238,6 +238,16 @@ export default function App() {
   const [serverVersion, setServerVersion] = useState(11);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState(''); // invite-code field on the enterKey screen
+  // True when the app is running as an installed PWA (home-screen / standalone) rather
+  // than a browser tab. The signup funnel (install → open → enter code) keeps the
+  // invite-code field disabled in a plain browser tab so participants set up the
+  // installed app first — required for reliable background notifications, especially on iOS.
+  const [standalone, setStandalone] = useState<boolean>(() =>
+    typeof window !== 'undefined' && (
+      window.matchMedia?.('(display-mode: standalone)').matches === true ||
+      (window.navigator as { standalone?: boolean }).standalone === true
+    ),
+  );
 
   const [participant, setParticipant] = useState(''); // display name (username)
   const [userId, setUserId] = useState('');           // stable backend identifier
@@ -257,7 +267,12 @@ export default function App() {
   // Accessibility (client-only)
   const [dark, setDark] = useState(false);
   const [highContrast, setHighContrast] = useState(false);
-  const [reduceMotion, setReduceMotion] = useState(false);
+  // Default to the participant's OS "reduce motion" preference (still toggleable
+  // in Settings) so motion-sensitive users get calm animations from first paint.
+  const [reduceMotion, setReduceMotion] = useState(
+    () => typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
+  );
   const [textSize, setTextSize] = useState<TextSize>('normal');
   const textSizeClass = TEXT_SIZE_CLASS[textSize];
 
@@ -279,8 +294,9 @@ export default function App() {
   const [wearableBusy, setWearableBusy] = useState<string | null>(null);
   // Transient banner after returning from a provider OAuth flow ({provider, ok}).
   const [wearableFlash, setWearableFlash] = useState<{ provider: string; ok: boolean } | null>(null);
-  // Soft pre-prompt shown once after consent for push-enabled studies.
-  const [pushPromptOpen, setPushPromptOpen] = useState(false);
+  // True while the mandatory notifications onboarding step is requesting permission
+  // / subscribing / sending the welcome push (disables its buttons).
+  const [notifBusy, setNotifBusy] = useState(false);
   // Next scheduled reminder (UTC ms) shown in the Details panel; null = none/unknown.
   const [nextNotification, setNextNotification] = useState<number | null>(null);
   const [errorText, setErrorText] = useState('');
@@ -413,6 +429,17 @@ export default function App() {
     const id = setInterval(() => setNowTick((t) => t + 1), 60000);
     return () => clearInterval(id);
   }, []);
+  // Track display-mode so the invite-code funnel unlocks if the app becomes standalone
+  // in-session (e.g. desktop install). A home-screen launch is a fresh load, already
+  // covered by the initial state above.
+  useEffect(() => {
+    const mq = window.matchMedia?.('(display-mode: standalone)');
+    if (!mq) return;
+    const sync = () =>
+      setStandalone(mq.matches || (window.navigator as { standalone?: boolean }).standalone === true);
+    mq.addEventListener?.('change', sync);
+    return () => mq.removeEventListener?.('change', sync);
+  }, []);
 
   // Availability of each visible questionnaire (recomputed as time/enrollment change).
   const questionnaireAvailability = useMemo(() => {
@@ -497,7 +524,7 @@ export default function App() {
           setPhase('name');
         } else {
           pushBot(`Welcome back, ${savedName}!`);
-          enterStudy(study);
+          enterStudyGated(study);
         }
       })
       .catch((e: unknown) => {
@@ -532,7 +559,7 @@ export default function App() {
       pushBot('Thank you. What name would you like to go by?');
       setPhase('name');
     } else {
-      enterStudy(study);
+      enterStudyGated(study);
     }
   };
 
@@ -620,17 +647,41 @@ export default function App() {
 
   // ── Web push: register this device's subscription so the server can send
   //    questionnaire reminders while the app is closed. Best-effort & silent. ──
-  const subscribePush = useCallback(async () => {
-    if (!study || !vapidKey || !isPushSupported()) return;
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const subscribePush = useCallback(async (): Promise<boolean> => {
+    if (!study || !vapidKey || !isPushSupported()) return false;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
     try {
       const subscription = await ensurePushSubscription(vapidKey);
       await subscribeToPush({ study, serverVersion, userId, subscription });
       localStorage.setItem(`esmira_push_subscribed_${study.id}`, '1');
+      return true;
     } catch {
       /* unsupported / SW not ready / offline — the next visit retries */
+      return false;
     }
   }, [study, vapidKey, serverVersion, userId]);
+
+  // Deliver the one-time onboarding welcome: a real server-sent push (the true test of
+  // the reminder pipeline), falling back to a local service-worker notification if the
+  // server couldn't send/confirm it. Guarded so it fires at most once per study+user.
+  const maybeDeliverWelcome = useCallback(async (s: EsmiraStudy) => {
+    const uid = userIdRef.current;
+    const key = `esmira_push_welcomed_${s.id}_${uid}`;
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    let succeeded = 0;
+    try {
+      succeeded = await sendWelcomePush({ study: s, serverVersion, userId: uid });
+    } catch {
+      succeeded = 0;
+    }
+    if (succeeded < 1) {
+      await showLocalNotification(
+        `Welcome to ${s.title}`,
+        "Notifications are on — we'll remind you when a questionnaire is ready.",
+      );
+    }
+  }, [serverVersion]);
 
   // ── Notifications: ask the browser for permission, then subscribe to push ──
   const requestNotifications = async () => {
@@ -644,26 +695,78 @@ export default function App() {
     }
   };
 
-  // After consent (once the participant reaches the questionnaire list/tutorial),
-  // for push-enabled studies: silently (re)subscribe if already granted, else show
-  // the soft pre-prompt once. Runs after state settles, so no first-render race.
+  // Once a participant has reached the study (list/tutorial), keep their push
+  // subscription fresh if notifications are already granted. The not-yet-granted
+  // case is handled up front by the mandatory notifications step (see enterStudyGated).
   useEffect(() => {
     if (!study || !vapidKey || !study.webPushEnabled) return;
     if (phase !== 'list' && phase !== 'tutorial') return;
-    if (!isPushSupported() || typeof Notification === 'undefined') return;
-    if (Notification.permission === 'granted') { void subscribePush(); return; }
-    if (Notification.permission === 'default'
-        && !localStorage.getItem(`esmira_push_prompted_${study.id}`)
-        && !pushPromptOpen) {
-      setPushPromptOpen(true);
-    }
-  }, [phase, study, vapidKey, pushPromptOpen, subscribePush]);
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') void subscribePush();
+  }, [phase, study, vapidKey, subscribePush]);
 
-  const dismissPushPrompt = (enable: boolean) => {
-    if (study) localStorage.setItem(`esmira_push_prompted_${study.id}`, '1');
-    setPushPromptOpen(false);
-    if (enable) void requestNotifications();
-  };
+  // Whether the mandatory notifications step is already settled for this study/user:
+  // push is off for the study, permission is granted + subscribed, or the participant
+  // has taken the "continue without notifications" escape hatch.
+  const notificationsSettled = useCallback((s: EsmiraStudy): boolean => {
+    if (!s.webPushEnabled) return true;
+    if (localStorage.getItem(`esmira_push_optout_${s.id}`) === '1') return true;
+    return typeof Notification !== 'undefined'
+      && Notification.permission === 'granted'
+      && localStorage.getItem(`esmira_push_subscribed_${s.id}`) === '1';
+  }, []);
+
+  // Onboarding gate: for push-enabled studies, route through the mandatory
+  // notifications step before entering the study. If permission is already granted
+  // (e.g. a returning device), subscribe + welcome silently and continue; otherwise
+  // show the step. Non-push studies (or already-settled ones) go straight through.
+  const enterStudyGated = useCallback((s: EsmiraStudy) => {
+    if (notificationsSettled(s)) { enterStudy(s); return; }
+    if (isPushSupported() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      void (async () => {
+        await subscribePush();
+        await maybeDeliverWelcome(s);
+        enterStudy(s);
+      })();
+      return;
+    }
+    pushBot("One last step — please turn on notifications so you don't miss a questionnaire. I'll send a quick welcome to confirm they're working.");
+    setPhase('notifications');
+  }, [notificationsSettled, enterStudy, subscribePush, maybeDeliverWelcome, pushBot]);
+
+  // Mandatory notifications step — primary action. Request permission (if not decided),
+  // then subscribe + deliver the welcome push, then continue into the study. A denied
+  // result keeps the participant on the step (the UI shows how to unblock + an escape).
+  const enableNotifications = useCallback(async () => {
+    if (!study || notifBusy) return;
+    setNotifBusy(true);
+    try {
+      let perm: NotificationPermission = typeof Notification !== 'undefined' ? Notification.permission : 'denied';
+      if (perm === 'default' && typeof Notification !== 'undefined') {
+        perm = await Notification.requestPermission();
+      }
+      setNotifPerm(perm === 'default' ? 'default' : perm);
+      if (perm === 'granted') {
+        const ok = await subscribePush();
+        await maybeDeliverWelcome(study);
+        pushBot(ok
+          ? "✅ Notifications are on — I've just sent you a welcome notification. You should see it in a moment."
+          : "✅ Notifications are on. You'll get notifications while the app is open; for background reminders, install this app to your home screen.");
+        enterStudy(study);
+      }
+    } finally {
+      setNotifBusy(false);
+    }
+  }, [study, notifBusy, subscribePush, maybeDeliverWelcome, pushBot, enterStudy]);
+
+  // Mandatory notifications step — escape hatch. Records the opt-out (so the step
+  // isn't shown again for this study) and continues into the study.
+  const skipNotifications = useCallback(() => {
+    if (!study) return;
+    localStorage.setItem(`esmira_push_optout_${study.id}`, '1');
+    pushUser('Not now');
+    pushBot('No problem — you can turn notifications on any time from Settings.');
+    enterStudy(study);
+  }, [study, pushBot, pushUser, enterStudy]);
 
   // Refresh the "Next notification" row whenever the Details panel opens.
   useEffect(() => {
@@ -793,7 +896,7 @@ export default function App() {
       pushUser(value);
       setFooterValue('');
       pushBot(`Thanks, ${value}!`);
-      enterStudy(study);
+      enterStudyGated(study);
       return;
     }
     if (phase === 'survey' && currentQuestion?.type === 'text') {
@@ -1059,6 +1162,7 @@ export default function App() {
       case 'name':
       case 'pid-conflict': return 'Sign up';
       case 'consent': return 'Consent';
+      case 'notifications': return 'Notifications';
       case 'tutorialOffer':
       case 'tutorial': return 'Tutorial';
       case 'survey': return activeQTitle || 'Survey';
@@ -1156,7 +1260,7 @@ export default function App() {
       </header>
 
       {/* Chat area */}
-      <main ref={scrollRef} role="log" aria-label="Survey conversation" aria-live="polite" tabIndex={0} className="flex-1 mt-16 mb-20 chat-wallpaper overflow-y-auto px-4 py-6 flex flex-col gap-4 no-scrollbar focus:outline-none">
+      <main ref={scrollRef} role="log" aria-label="Survey conversation" aria-live="polite" tabIndex={0} className="flex-1 mt-16 mb-20 chat-wallpaper overflow-y-auto px-4 py-6 flex flex-col gap-4 no-scrollbar focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
         <div className="flex justify-center my-2">
           <span className="bg-slate-700 dark:bg-surface-container-highest text-white dark:text-on-surface px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm">Today</span>
         </div>
@@ -1180,7 +1284,7 @@ export default function App() {
                   ? <div className={cn('leading-relaxed font-medium esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: msg.content }} />
                   : <p className={cn('leading-relaxed font-medium whitespace-pre-wrap', textSizeClass)}>{msg.content}</p>}
                 <div className="flex justify-end items-center gap-1 mt-1">
-                  <span className={cn('text-[10px] font-bold', msg.sender === 'user' ? 'text-on-primary opacity-70' : 'text-slate-500 dark:text-on-surface-variant')}>{nowTime()}</span>
+                  <span className={cn('text-[10px] font-bold', msg.sender === 'user' ? 'text-on-primary' : 'text-on-surface-variant')}>{nowTime()}</span>
                   {msg.sender === 'user' && <CheckCircle size={12} className="text-on-primary opacity-70" aria-hidden="true" />}
                 </div>
               </div>
@@ -1217,10 +1321,43 @@ export default function App() {
         {/* Invite-code prompt (no study key in the URL or remembered) */}
         {phase === 'enterKey' && (
           <div className="self-center w-full max-w-sm mt-4 flex flex-col gap-4">
+            {/* Signup funnel — in a plain browser tab, install first. Hidden once the
+                app is running as an installed PWA (standalone), where step 1 is done. */}
+            {!standalone && (
+              <div className="bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-5 flex flex-col gap-4">
+                <div className="flex items-start gap-3">
+                  <span className="p-2 rounded-full bg-secondary-container text-on-secondary-container shrink-0"><Download size={20} aria-hidden="true" /></span>
+                  <div>
+                    <h2 className="text-lg font-bold text-on-surface leading-snug">Install the app to begin</h2>
+                    <p className="text-sm text-on-surface-variant leading-relaxed mt-0.5">
+                      For reliable reminders, set up the app before entering your invite code.
+                    </p>
+                  </div>
+                </div>
+                <ol className="flex flex-col gap-2.5 text-sm">
+                  {[
+                    { n: 1, label: 'Install this app', active: true },
+                    { n: 2, label: 'Open it from your home screen', active: false },
+                    { n: 3, label: 'Enter your invite code', active: false },
+                  ].map((s) => (
+                    <li key={s.n} className={cn('flex items-center gap-2.5', s.active ? 'font-semibold text-on-surface' : 'text-on-surface-variant')}>
+                      <span className={cn('flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold shrink-0',
+                        s.active ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant')}>{s.n}</span>
+                      {s.label}
+                    </li>
+                  ))}
+                </ol>
+                <InstallPrompt variant="card" />
+              </div>
+            )}
+
+            {/* Step 3 — enter the invite code (enabled only once running as the installed app). */}
             <div className="bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-5 flex flex-col gap-3">
               <h2 className="text-lg font-bold text-on-surface">Enter your study invite code</h2>
               <p className="text-sm text-on-surface-variant leading-relaxed">
-                Ask the researcher running your study for your invite code, then enter it below to begin.
+                {standalone
+                  ? 'Ask the researcher running your study for your invite code, then enter it below to begin.'
+                  : 'Install and open the app first (steps above) — then enter your invite code here.'}
               </p>
               <input
                 type="text"
@@ -1228,22 +1365,22 @@ export default function App() {
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
+                disabled={!standalone}
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') submitAccessKey(); }}
                 placeholder="Invite code"
                 aria-label="Study invite code"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <button
                 onClick={submitAccessKey}
-                disabled={!keyInput.trim()}
+                disabled={!standalone || !keyInput.trim()}
                 className="w-full bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-50 disabled:active:scale-100"
               >
                 Continue
               </button>
             </div>
-            <InstallPrompt variant="card" />
           </div>
         )}
 
@@ -1274,7 +1411,7 @@ export default function App() {
                     setPhase('name');
                   } else {
                     pushBot(`Welcome back, ${savedName}!`);
-                    enterStudy(study);
+                    enterStudyGated(study);
                   }
                 }
               }}
@@ -1314,30 +1451,71 @@ export default function App() {
           </div>
         )}
 
-        {/* Push opt-in soft pre-prompt (shown once after consent, push-enabled studies) */}
-        {pushPromptOpen && (
-          <div role="group" aria-label="Get survey reminders?" aria-live="polite" className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
+        {/* Mandatory notifications step (push-enabled studies, after consent + name) */}
+        {phase === 'notifications' && study && (() => {
+          const supported = isPushSupported() && typeof Notification !== 'undefined';
+          const denied = supported && notifPerm === 'denied';
+          return (
+          <div role="group" aria-label="Turn on notifications" aria-live="polite" className="self-start w-[85%] flex flex-col gap-3 bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-4">
             <div className="flex items-start gap-2">
               <BellRing size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
               <div>
-                <p className="font-bold text-on-surface">Get survey reminders?</p>
+                <p className="font-bold text-on-surface">Turn on notifications</p>
                 <p className={cn('text-on-surface-variant mt-0.5', textSizeClass)}>
-                  Allow notifications so we can remind you when a questionnaire is due — even when the app is closed.
+                  This study sends each questionnaire as a notification when it's due. Turn them on so you don't miss one — we'll send a quick welcome to confirm they work.
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
-              <button onClick={() => dismissPushPrompt(true)}
-                className="flex-1 inline-flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all">
-                <BellRing size={16} aria-hidden="true" /> Enable
-              </button>
-              <button onClick={() => dismissPushPrompt(false)}
-                className="flex-1 bg-surface-container-high text-on-surface font-bold py-3 rounded-full active:scale-95 transition-all">
-                Not now
-              </button>
-            </div>
+
+            {!supported ? (
+              // Push isn't available in this context (typically iOS Safari before the PWA
+              // is installed) — guide them to add it to the Home Screen, then reopen.
+              <>
+                <p className={cn('text-on-surface-variant', textSizeClass)}>
+                  To get reminders on this device, add this app to your Home Screen first, then reopen it from there and turn on notifications.
+                </p>
+                <InstallPrompt variant="card" />
+                <button onClick={skipNotifications}
+                  className="w-full text-on-surface-variant font-semibold py-2 rounded-full text-sm active:scale-95 transition-colors">
+                  Continue without notifications
+                </button>
+              </>
+            ) : denied ? (
+              // Permission was blocked — can't be re-prompted programmatically; explain how
+              // to unblock, offer a re-check, and keep the escape hatch.
+              <>
+                <p className={cn('text-on-surface-variant', textSizeClass)}>
+                  Notifications are currently blocked for this site. Open your browser's settings for this page, allow notifications, then tap Try again.
+                </p>
+                <button
+                  onClick={() => {
+                    const perm = typeof Notification !== 'undefined' ? Notification.permission : 'denied';
+                    setNotifPerm(perm);
+                    if (perm !== 'denied') void enableNotifications();
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all">
+                  <RefreshCw size={16} aria-hidden="true" /> Try again
+                </button>
+                <button onClick={skipNotifications}
+                  className="w-full text-on-surface-variant font-semibold py-2 rounded-full text-sm active:scale-95 transition-colors">
+                  Continue without notifications
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => void enableNotifications()} disabled={notifBusy}
+                  className="w-full inline-flex items-center justify-center gap-2 bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-60 disabled:active:scale-100">
+                  <BellRing size={16} aria-hidden="true" /> {notifBusy ? 'Enabling…' : 'Enable notifications'}
+                </button>
+                <button onClick={skipNotifications} disabled={notifBusy}
+                  className="w-full text-on-surface-variant font-semibold py-2 rounded-full text-sm active:scale-95 transition-colors disabled:opacity-60">
+                  Continue without notifications
+                </button>
+              </>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Questionnaire list */}
         {phase === 'list' && study && (() => {
@@ -1449,7 +1627,7 @@ export default function App() {
                     onTouchEnd={(e) => { e.preventDefault(); setGridMenuOpen(false); }}
                   />
                   <motion.div
-                    ref={gridMenuRef} tabIndex={-1} role="menu" aria-label="Menu"
+                    ref={gridMenuRef} tabIndex={-1} role="group" aria-label="Quick actions menu"
                     initial={reduceMotion ? { opacity: 1 } : { opacity: 0, scale: 0.95, y: 10 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: 10 }}
@@ -1719,7 +1897,8 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <div className="p-5 overflow-y-auto custom-scrollbar">
+                  // tabIndex={0} so keyboard users can scroll this text-only region (WCAG 2.1.1).
+                  <div className="p-5 overflow-y-auto custom-scrollbar focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" tabIndex={0} role="region" aria-label={detailTitle}>
                     {detailHtml
                       ? <div className={cn('leading-relaxed esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: detailHtml }} />
                       : <p className="text-sm text-on-surface-variant">Not provided for this study.</p>}
