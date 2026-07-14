@@ -24,6 +24,7 @@ import {
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
   subscribeToPush, fetchNextNotification, logEvent, reportClientInfo, sendWelcomePush, reportPushEvent,
+  submitJoined,
   startWearableConnect, fetchWearableStatus, disconnectWearable,
   claimPidLock, releasePidLock, getOrCreateDeviceToken,
 } from './lib/esmiraApi';
@@ -523,6 +524,17 @@ export default function App() {
         // informedConsentForm is a plain-text field — keep it plain (line breaks preserved).
         if (study.studyDescription) pushBot(study.studyDescription, true);
         const consented = localStorage.getItem(`esmira_consent_${study.id}`) === '1';
+        // Backfill enrollment for participants who consented before join-at-consent existed:
+        // stamp a join time now (their original consent moment is unrecoverable) and record
+        // the event server-side, so "Joined at" and the schedule anchor resolve without
+        // waiting for a first submission. New participants are handled in onConsent instead.
+        const backfillJoinKey = `esmira_joined_${study.id}_${uid}`;
+        if (consented && uid && !localStorage.getItem(backfillJoinKey)) {
+          const joinedAt = Date.now();
+          localStorage.setItem(backfillJoinKey, String(joinedAt));
+          ensureEnrollment(study.id, uid, joinedAt);
+          void submitJoined({ study, serverVersion, accessKey, userId: uid, joinedAt });
+        }
         if (study.informedConsentForm && !consented) {
           pushBot(study.informedConsentForm);
           setPhase('consent');
@@ -561,6 +573,18 @@ export default function App() {
     }
     pushUser('I consent');
     localStorage.setItem(`esmira_consent_${study.id}`, '1');
+    // Enrollment = consent. Stamp the join time now (it drives "Joined at" and the
+    // schedule anchor), anchor availability day-counting to it, and record the "joined"
+    // event server-side immediately — ESMira's native apps also join at enrollment
+    // rather than deferring to the first questionnaire. Guarded so it runs once.
+    const uid = userIdRef.current;
+    const joinedKey = `esmira_joined_${study.id}_${uid}`;
+    if (uid && !localStorage.getItem(joinedKey)) {
+      const joinedAt = Date.now();
+      localStorage.setItem(joinedKey, String(joinedAt));
+      ensureEnrollment(study.id, uid, joinedAt);
+      void submitJoined({ study, serverVersion, accessKey, userId: uid, joinedAt });
+    }
     const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
     if (!savedName) {
       pushBot('Thank you. What name would you like to go by?');
@@ -1163,8 +1187,10 @@ export default function App() {
       pageDurations: '',
       audioIdentifiers: audioIdsRef.current,
     });
-    // Record the join time (epoch ms) on first submission; bump the count of
-    // completed questionnaires. Both surface in the About / Study information panel.
+    // Join time is normally stamped at consent (see onConsent). This is a fallback for
+    // participants who joined before that flow existed (no stored join time): record it on
+    // first submission so "Joined at" and the schedule anchor still resolve. Also bump the
+    // completed-questionnaire count. Both surface in the About / Study information panel.
     if (newParticipant) localStorage.setItem(joinedKey, String(submittedAt));
     const completedKey = `esmira_completed_${study.id}_${userId}`;
     localStorage.setItem(completedKey, String(Number(localStorage.getItem(completedKey) || '0') + 1));

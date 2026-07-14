@@ -564,6 +564,61 @@ export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
   }
 }
 
+export interface JoinArgs {
+  study: EsmiraStudy;
+  serverVersion: number;
+  accessKey: string;
+  userId: string;
+  /** Consent-acceptance time (epoch ms) — the enrollment/join timestamp. */
+  joinedAt: number;
+}
+
+function buildJoinPayload(args: JoinArgs): DatasetPayload {
+  const model = navigator.userAgent;
+  return {
+    userId: args.userId,
+    appType: 'Web',
+    appVersion: String(args.serverVersion),
+    serverVersion: args.serverVersion,
+    dataset: [{
+      studyId: args.study.id,
+      studyVersion: args.study.version ?? 0,
+      studySubVersion: args.study.subVersion ?? 0,
+      studyLang: args.study.lang ?? 'en',
+      accessKey: args.accessKey,
+      dataSetId: 0,
+      questionnaireName: null,
+      questionnaireInternalId: null,
+      eventType: 'joined',
+      responseTime: args.joinedAt,
+      responses: { model },
+    }],
+  };
+}
+
+/**
+ * Record enrollment ("joined") at consent time — the enrollment event ESMira's native
+ * apps also send on joining, rather than deferring it to the first questionnaire. This
+ * creates the participant's server record (UserData → joinedTime, the push-schedule
+ * anchor) as soon as they consent. Offline-safe: queued and retried like a submission.
+ * Call once, guarded by the `esmira_joined_*` key. Returns true if accepted now.
+ */
+export async function submitJoined(args: JoinArgs): Promise<boolean> {
+  const payload = buildJoinPayload(args);
+  const id = newProtocolId();
+  try {
+    await postDataset(payload);
+    appendProtocol(args.study.id, args.userId, [{ id, time: args.joinedAt, label: 'Joined study', eventType: 'joined', status: 'sent' }]);
+    return true;
+  } catch {
+    const queue = loadQueue();
+    queue.push({ payload, attempts: 1, protocol: { studyId: args.study.id, userId: args.userId, ids: [id] } });
+    saveQueue(queue);
+    appendProtocol(args.study.id, args.userId, [{ id, time: args.joinedAt, label: 'Joined study', eventType: 'joined', status: 'pending' }]);
+    return false;
+  }
+}
+
 /**
  * Send a free-text message from the participant to the research team via the
  * existing public `api/save_message.php` (the same endpoint native apps use).
