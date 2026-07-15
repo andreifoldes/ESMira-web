@@ -253,10 +253,15 @@ export function recordCompletion(studyId: number, userId: string, q: EsmiraQuest
     const rec: CompletionRecord = completions[q.internalId] ?? { lastAt: 0, count: 0, occ: {} };
     rec.lastAt = now;
     rec.count += 1;
+    rec.occ = rec.occ ?? {};
     const windows = windowsForDay(q, joined, now);
     if (windows) {
       const tod = now - midnight(now);
-      const open = windows.find((w) => tod >= w.start && tod <= w.end);
+      // Mark the occurrence computeAvailability deemed available: the first open
+      // window that isn't already completed. Without the occ check, two same-day
+      // windows running to end-of-day overlap and the earlier (done) one absorbs
+      // the mark, leaving the later one perpetually re-completable.
+      const open = windows.find((w) => tod >= w.start && tod <= w.end && !(q.completableOncePerNotification && rec.occ[w.key]));
       if (open) rec.occ[open.key] = now;
     }
     completions[q.internalId] = rec;
