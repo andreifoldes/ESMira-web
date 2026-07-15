@@ -11,3 +11,9 @@
 # Test artifacts (Playwright MCP screenshots, ad-hoc root screenshots)
 /.playwright-mcp/
 /*.png
+
+# Claude Code session logs & local tooling config (kept out of version control)
+/.claude/logs/
+/skills-lock.json
+/.mcp.json
+/DESIGN.md
