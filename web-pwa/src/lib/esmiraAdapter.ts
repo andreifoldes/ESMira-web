@@ -160,9 +160,13 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       // Voice memo. The response value is an integer upload identifier (set when
       // the participant saves the recording); the audio bytes upload separately to
       // file_uploads.php and the backend links them to this key's CSV column.
+      // The prompt is authored in ESMira's rich-text editor, so `text` is HTML —
+      // flag it so both the live card and the settled thread bubble render it as
+      // rich text rather than dumping literal <div>/<br> markup.
       return {
         ...base,
         type: 'audio',
+        is_html: true,
         max_recording_seconds: input.maxLength && input.maxLength > 0 ? input.maxLength : 300,
       };
     case 'va_scale':
