@@ -304,6 +304,8 @@ export default function App() {
   const [awaitingWelcomeConfirm, setAwaitingWelcomeConfirm] = useState(false);
   // Next scheduled reminder (UTC ms) shown in the Details panel; null = none/unknown.
   const [nextNotification, setNextNotification] = useState<number | null>(null);
+  // Result of the on-demand "send a test notification" button in Settings → Notifications.
+  const [testPushStatus, setTestPushStatus] = useState<'idle' | 'sending' | 'sent' | 'local' | 'error'>('idle');
   const [errorText, setErrorText] = useState('');
   const [errorStatus, setErrorStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -678,6 +680,7 @@ export default function App() {
     setUpdateStatus('idle');
     setErrorStatus('idle');
     setErrorText('');
+    setTestPushStatus('idle');
     if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission);
     setA11yOpen(true);
   };
@@ -764,6 +767,22 @@ export default function App() {
     localStorage.setItem(key, '1');
     await deliverWelcome(s);
   }, [deliverWelcome]);
+
+  // On-demand self-test from Settings → Notifications: refresh the subscription (which
+  // self-heals a rotated/mismatched VAPID key) then send a real server push, falling back
+  // to a local notification if the server can't deliver. Lets a participant verify that
+  // reminders reach their device at any time, not only during onboarding.
+  const sendTestPush = useCallback(async (s: EsmiraStudy) => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    setTestPushStatus('sending');
+    try {
+      await subscribePush();
+      const serverOk = await deliverWelcome(s);
+      setTestPushStatus(serverOk ? 'sent' : 'local');
+    } catch {
+      setTestPushStatus('error');
+    }
+  }, [subscribePush, deliverWelcome]);
 
   // ── Notifications: ask the browser for permission, then subscribe to push ──
   const requestNotifications = async () => {
@@ -1928,7 +1947,9 @@ export default function App() {
               ) : settingsView === 'about' ? (
                 <AboutEsmiraPanel serverVersion={serverVersion} />
               ) : settingsView === 'notifications' ? (
-                <NotificationsPanel perm={notifPerm} onEnable={requestNotifications} />
+                <NotificationsPanel perm={notifPerm} onEnable={requestNotifications}
+                  onTest={() => { if (study) void sendTestPush(study); }}
+                  testStatus={testPushStatus} canTest={!!study && !!vapidKey} />
               ) : settingsView === 'wearables' ? (
                 <WearablesPanel
                   providers={offeredWearables}
@@ -2262,7 +2283,13 @@ function AboutEsmiraPanel({ serverVersion }: { serverVersion: number }) {
 }
 
 /** Notifications troubleshooting sub-panel: current permission + guidance. */
-function NotificationsPanel({ perm, onEnable }: { perm: NotificationPermission | 'unsupported'; onEnable: () => void }) {
+function NotificationsPanel({ perm, onEnable, onTest, testStatus, canTest }: {
+  perm: NotificationPermission | 'unsupported';
+  onEnable: () => void;
+  onTest: () => void;
+  testStatus: 'idle' | 'sending' | 'sent' | 'local' | 'error';
+  canTest: boolean;
+}) {
   const status = perm === 'granted'
     ? { icon: <CheckCircle size={18} aria-hidden="true" />, text: 'Notifications are enabled.', cls: 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400' }
     : perm === 'denied'
@@ -2287,6 +2314,17 @@ function NotificationsPanel({ perm, onEnable }: { perm: NotificationPermission |
           You've blocked notifications. To turn them back on, open your browser's site settings for this
           page, allow notifications, then reload.
         </p>
+      )}
+      {perm === 'granted' && canTest && (
+        <div className="flex flex-col gap-1.5" aria-live="polite">
+          <button onClick={onTest} disabled={testStatus === 'sending'}
+            className="self-start inline-flex items-center gap-2 bg-primary text-on-primary font-bold px-4 py-2.5 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-60">
+            <BellRing size={16} aria-hidden="true" /> {testStatus === 'sending' ? 'Sending…' : 'Send a test notification'}
+          </button>
+          {testStatus === 'sent' && <p className="text-sm text-green-600 dark:text-green-400">✓ Sent — you should see it shortly.</p>}
+          {testStatus === 'local' && <p className="text-sm text-on-surface-variant">Shown on this device (couldn't confirm a server push).</p>}
+          {testStatus === 'error' && <p className="text-sm text-red-600 dark:text-red-400">Couldn't send a test — please try again.</p>}
+        </div>
       )}
       <div>
         <p className="font-semibold text-sm mb-2">If reminders aren't arriving:</p>
