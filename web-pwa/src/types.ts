@@ -25,7 +25,7 @@ export type QType =
 
 export interface PreloadedQuestion {
   id: string; // == ESMira input `name` (unique study-wide → response key)
-  text: string; // question text; for `info` may contain raw HTML
+  text: string; // question text — authored in the rich-text editor, so may contain HTML
   type: QType;
   required: boolean;
   options?: string[] | null;
@@ -40,7 +40,7 @@ export interface PreloadedQuestion {
   no_value?: string;
   yes_label?: string;
   yes_value?: string;
-  // info items render text as raw HTML (cognitive link-outs etc.)
+  // render `text` as raw HTML (set on every question — text is rich-text-authored)
   is_html?: boolean;
   // cognitive/link-out tasks: launch this URL in an in-app iframe overlay
   title?: string;
