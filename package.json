@@ -71,6 +71,7 @@
 		"@types/mithril": "^2.0.13",
 		"@types/semver": "^7.7.1",
 		"generate-file-webpack-plugin": "^1.0.1",
+		"shadcn": "^4.13.0",
 		"ts-loader": "^9.3.0",
 		"typescript": "^4.6.4",
 		"webpack": "^5.75.0",
@@ -81,6 +82,8 @@
 		"prod": "webpack --config build_configs/config.production.js",
 		"create_structure_index": "node build_configs/create_structure_index.mjs",
 		"build:pwa": "cd web-pwa && npm ci && npm run build",
-		"build:all": "npm run prod && npm run build:pwa"
+		"build:all": "npm run prod && npm run build:pwa",
+		"a11y:setup": "npm --prefix web-pwa/a11y install",
+		"a11y": "node web-pwa/a11y/audit.mjs"
 	}
 }
