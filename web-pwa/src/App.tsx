@@ -1232,7 +1232,7 @@ export default function App() {
         recordCompletion(study.id, userId, q, anchor, submittedAt);
         // Mirror to IndexedDB so the SW suppresses further prompts for this questionnaire.
         const rec = loadCompletions(study.id, userId)[q.internalId];
-        if (rec) void mirrorCompletion(study.id, userId, q.internalId, rec.lastAt, rec.count);
+        if (rec) void mirrorCompletion(study.id, userId, q.internalId, rec.lastAt, rec.count, rec.occ);
       }
     }
     setSubmitting(false);

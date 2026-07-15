@@ -79,8 +79,16 @@ interface PushItem {
   key?: string;
   /** When this occurrence's completion window opened (epoch ms). */
   windowStart?: number;
+  /** When the completion window closes (epoch ms); null/absent = open until end of day. */
+  deadline?: number | null;
   /** Whether the questionnaire is one-shot (completableOnce). */
   once?: boolean;
+  /** completableOncePerDay — one completion any time this local day satisfies it. */
+  dailyOnce?: boolean;
+  /** completableOncePerNotification — a completion of THIS occurrence (occKey) satisfies it. */
+  onceNotif?: boolean;
+  /** Window key `${dayIndex}:${startTimeOfDay}` matching the app's occ map (availability.ts). */
+  occKey?: string | null;
   title?: string;
   body?: string;
 }
@@ -137,16 +145,18 @@ function swOpenState(): Promise<IDBDatabase> {
   });
 }
 
-function swGetCompletion(sid: number, uid: string, qid: number): Promise<{ lastAt: number; count: number } | null> {
+type SwCompletion = { lastAt: number; count: number; occ?: Record<string, number> };
+
+function swGetCompletion(sid: number, uid: string, qid: number): Promise<SwCompletion | null> {
   return swOpenState()
     .then(
       (db) =>
-        new Promise<{ lastAt: number; count: number } | null>((resolve) => {
+        new Promise<SwCompletion | null>((resolve) => {
           try {
             const g = db.transaction('completions', 'readonly').objectStore('completions').get(`${sid}:${uid}:${qid}`);
             g.onsuccess = () => {
-              const r = g.result as { lastAt: number; count: number } | undefined;
-              resolve(r ? { lastAt: r.lastAt, count: r.count } : null);
+              const r = g.result as SwCompletion | undefined;
+              resolve(r ? { lastAt: r.lastAt, count: r.count, occ: r.occ } : null);
               db.close();
             };
             g.onerror = () => { resolve(null); db.close(); };
@@ -214,7 +224,15 @@ function itemKey(it: PushItem): string {
   return it.key || `${it.qid}:${it.windowStart ?? 0}`;
 }
 
-/** Has this questionnaire's current occurrence already been completed? */
+/** Whether two timestamps fall on the same local calendar day (device-local, matching the
+ *  app's availability.ts isToday — the SW runs on the participant's device). */
+function isSameLocalDay(a: number, b: number): boolean {
+  const da = new Date(a), db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
+/** Has this questionnaire's current occurrence already been completed (or otherwise
+ *  satisfied for now under the study's completion rules)? */
 async function itemCompleted(sid: number, uid: string, it: PushItem): Promise<boolean> {
   const rec = await swGetCompletion(sid, uid, it.qid);
   if (!rec) return false;
@@ -222,6 +240,12 @@ async function itemCompleted(sid: number, uid: string, it: PushItem): Promise<bo
   if (typeof it.windowStart === 'number' && rec.lastAt >= it.windowStart) return true;
   // One-shot questionnaire completed at least once (covers completion on an earlier day).
   if (it.once && rec.count > 0) return true;
+  // Once-per-day questionnaire already completed earlier the SAME local day — even before
+  // this signal fired. The app locks it for the day, so don't re-prompt.
+  if (it.dailyOnce && isSameLocalDay(rec.lastAt, Date.now())) return true;
+  // Once-per-notification questionnaire whose THIS specific occurrence was completed
+  // (exact occ-key match; occ is mirrored from availability.ts's per-window record).
+  if (it.onceNotif && it.occKey && rec.occ && rec.occ[it.occKey]) return true;
   return false;
 }
 
@@ -235,6 +259,8 @@ async function showReminder(payload: PushPayload): Promise<void> {
   if (items.length && payload.sid && payload.uid) {
     const remaining: PushItem[] = [];
     for (const it of items) {
+      // Completion window already closed (deadline passed) → too late to do it, don't nag.
+      if (typeof it.deadline === 'number' && Date.now() > it.deadline) continue;
       // Drop anything already completed, or already displayed today (dedup by occurrence key).
       if (await itemCompleted(payload.sid, payload.uid, it)) continue;
       if (await swWasShown(itemKey(it))) continue;

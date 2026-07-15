@@ -341,9 +341,9 @@ class PushSender {
 	/**
 	 * Collapse a participant's due occurrences into a single push payload, or null if
 	 * none are due (or all were already sent). Keeps one entry per questionnaire (the most
-	 * recent occurrence), and carries per-item {qid, key, windowStart, deadline, title, body}
-	 * so the service worker can drop already-completed / already-shown questionnaires and
-	 * re-render the remaining count.
+	 * recent occurrence), and carries per-item {qid, key, windowStart, deadline, once,
+	 * dailyOnce, onceNotif, occKey, title, body} so the service worker can drop
+	 * already-completed / already-shown questionnaires and re-render the remaining count.
 	 *
 	 * Per-occurrence de-duplication: each item's `key` is `type:qid:sendTime`, which is the
 	 * identity of one notification (a specific beep/window, or a specific reminder). Items
@@ -357,11 +357,19 @@ class PushSender {
 		if(empty($occurrences))
 			return null;
 
-		// qid → completableOnce, so the service worker can also suppress a one-shot
-		// questionnaire that was completed on an earlier day (windowStart wouldn't catch that).
+		// qid → completion-rule flags, so the service worker can suppress reminders for
+		// questionnaires already satisfied in ways windowStart alone wouldn't catch:
+		//   once     (completableOnce)              — completed on any earlier day
+		//   dailyOnce(completableOncePerDay)        — completed earlier today, before this signal
+		//   onceNotif(completableOncePerNotification)— this specific occurrence (occKey) done
 		$onceByQid = [];
+		$perDayByQid = [];
+		$onceNotifByQid = [];
 		foreach(($study['questionnaires'] ?? []) as $qi => $q) {
-			$onceByQid[(int) ($q['internalId'] ?? $qi)] = !empty($q['completableOnce']);
+			$id = (int) ($q['internalId'] ?? $qi);
+			$onceByQid[$id]      = !empty($q['completableOnce']);
+			$perDayByQid[$id]    = !empty($q['completableOncePerDay']);
+			$onceNotifByQid[$id] = !empty($q['completableOncePerNotification']);
 		}
 
 		// One entry per questionnaire — keep the most recent (a reminder supersedes its base).
@@ -389,6 +397,9 @@ class PushSender {
 				'windowStart' => (int) ($occ['windowStart'] ?? $occ['timestamp']),
 				'deadline'    => isset($occ['deadline']) ? $occ['deadline'] : null,
 				'once'        => (bool) ($onceByQid[$qid] ?? false),
+				'dailyOnce'   => (bool) ($perDayByQid[$qid] ?? false),
+				'onceNotif'   => (bool) ($onceNotifByQid[$qid] ?? false),
+				'occKey'      => isset($occ['occKey']) ? (string) $occ['occKey'] : null,
 				'title'       => (string) ($occ['title'] ?? 'ESMira'),
 				'body'        => (string) ($occ['body'] ?? ''),
 			];

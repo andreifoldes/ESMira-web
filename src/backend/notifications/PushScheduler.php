@@ -110,6 +110,14 @@ class PushScheduler {
 								$baseTimes = [$dayMidnightLocal + (int) ($st['startTimeOfDay'] ?? 0) + $offsetMs];
 							}
 
+							// occKey identifies the SIGNAL WINDOW (day index + configured start-of-day),
+							// matching the PWA's own occurrence key in availability.ts (windowsForDay:
+							// `${dayIndex}:${startTimeOfDay}`). It lets the service worker suppress a
+							// completed once-per-notification occurrence. Random draws deliberately share
+							// their window's key (the configured start, not the sampled time), exactly as
+							// the PWA keys them — so client and server agree despite differing random rolls.
+							$occKey = "$d:" . (int) ($st['startTimeOfDay'] ?? 0);
+
 							foreach($baseTimes as $T) {
 								$T = (int) $T;
 								if($durStart > 0 && $T < $durStart)
@@ -125,7 +133,7 @@ class PushScheduler {
 								if($T > $sinceMs && $T <= $nowMs)
 									$out[] = [
 										'type' => 'availability', 'qid' => $qInternalId, 'title' => $qTitle,
-										'body' => $displayBody, 'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+										'body' => $displayBody, 'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc, 'occKey' => $occKey,
 									];
 								for($k = 1; $k <= $reminderCount; $k++) {
 									$rt = $T + $k * $reminderDelayMs;
@@ -135,7 +143,7 @@ class PushScheduler {
 										continue;
 									$out[] = [
 										'type' => 'reminder', 'qid' => $qInternalId, 'title' => $qTitle,
-										'body' => $displayBody, 'timestamp' => $rt, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+										'body' => $displayBody, 'timestamp' => $rt, 'windowStart' => $T, 'deadline' => $deadlineUtc, 'occKey' => $occKey,
 									];
 								}
 							}
@@ -167,7 +175,7 @@ class PushScheduler {
 						$deadlineUtc = $deadlineTod === null ? null : $dayMidnightLocal + $deadlineTod + $offsetMs;
 						$out[] = [
 							'type' => 'availability', 'qid' => $qInternalId, 'title' => $qTitle,
-							'body' => self::appendDeadline($availBody, $includeDeadline, $deadlineTod),
+							'body' => self::appendDeadline($availBody, $includeDeadline, $deadlineTod), 'occKey' => "spec:$d",
 							'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc,
 						];
 					}
