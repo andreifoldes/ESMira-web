@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc -p tsconfig.worker.json",
+    "test": "node --test 'src/**/*.test.mts'",
     "generate-pwa-assets": "pwa-assets-generator"
   },
   "dependencies": {
