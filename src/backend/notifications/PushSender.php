@@ -100,7 +100,7 @@ class PushSender {
 				}
 
 				$stateFile = $file . '.state';
-				$state     = json_decode(@file_get_contents($stateFile), true);
+				$state     = self::readJsonFile($stateFile);
 				$cursor    = (is_array($state) && isset($state['cursor'])) ? (int) $state['cursor'] : $now;
 				$realized  = (is_array($state) && isset($state['realized']) && is_array($state['realized'])) ? $state['realized'] : [];
 				// Per-occurrence "already sent" ledger (key => sentAtMs). Belt-and-suspenders
@@ -172,10 +172,25 @@ class PushSender {
 		catch(Throwable $e) { /* non-fatal */ }
 	}
 
+	/**
+	 * Read + JSON-decode a file to an array, or null if it is missing/unreadable/invalid.
+	 * Guards json_decode against the `false` that file_get_contents returns for a missing
+	 * file — under declare(strict_types=1) that `false` is a fatal TypeError, not a benign
+	 * null. The per-participant .state file is routinely absent (it doesn't exist until the
+	 * first successful run), so this must never throw.
+	 */
+	private static function readJsonFile(string $path): ?array {
+		$raw = @file_get_contents($path);
+		if(!is_string($raw))
+			return null;
+		$data = json_decode($raw, true);
+		return is_array($data) ? $data : null;
+	}
+
 	/** The sender heartbeat ({lastRunMs, studies, queued}), or null if it has never run. */
 	public static function readHeartbeat(): ?array {
-		$data = json_decode(@file_get_contents(PathsFS::filePushHeartbeat()), true);
-		return (is_array($data) && isset($data['lastRunMs'])) ? $data : null;
+		$data = self::readJsonFile(PathsFS::filePushHeartbeat());
+		return ($data !== null && isset($data['lastRunMs'])) ? $data : null;
 	}
 
 	/** Number of registered push subscriptions for a study (for the admin panel). */
