@@ -141,6 +141,10 @@ class PathsFS {
 	static function filePushEvents(int $studyId): string {
 		return self::folderStudies() . "$studyId/.push_events";
 	}
+	/** Global sender heartbeat ({lastRunMs, studies, queued}); rewritten every cron run. */
+	static function filePushHeartbeat(): string {
+		return self::folderData() . '.push_heartbeat.json';
+	}
 	/** Per-participant client telemetry (installed-as-PWA + device class); latest wins. */
 	static function folderClientInfo(int $studyId): string {
 		return self::folderStudies() . "$studyId/.client_info/";

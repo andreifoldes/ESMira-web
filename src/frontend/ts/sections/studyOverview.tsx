@@ -11,6 +11,10 @@ import {SectionData} from "../site/SectionData";
 import {Study} from "../data/study/Study";
 import qrcode from "qrcode-generator";
 import iemabotLogoSvg from "../../imgs/iemabot_logo.svg?raw";
+import {generateProceduralCover, paletteForKey} from "../helpers/ProceduralCover";
+
+// Toggled on <body> for the branded invite page to hide the redundant global site header (see style.css)
+const HIDE_SITE_HEADER_CLASS = "hideSiteHeader"
 
 const C = {
 	primary:            "#00471c",
@@ -29,6 +33,8 @@ export class Content extends SectionContent {
 	private readonly pwaUrl: string = ""
 	private readonly inviteUrl: string = ""
 	private readonly qrDataUrl: string = ""
+	// Deterministic procedural cover, generated once when the study has no artwork of its own
+	private readonly fallbackCoverUrl: string = ""
 	private linkCopied: boolean = false
 
 	public static preLoad(sectionData: SectionData): Promise<any>[] {
@@ -75,10 +81,30 @@ export class Content extends SectionContent {
 			qr.make()
 			this.qrDataUrl = qr.createDataURL(5)
 
+			// Studies without their own artwork get a deterministic procedural cover.
+			// Seeding by study id keeps it identical across devices and reloads.
+			if (!study.studyArtwork.get()) {
+				try {
+					this.fallbackCoverUrl = generateProceduralCover({
+						seed: String(studyId),
+						palette: paletteForKey(studyId),
+						height: 220,
+					})
+				} catch (e) {
+					console.warn("Could not generate procedural cover", e)
+				}
+			}
+
 			this.applyIemabotBranding(study.title.get(), this.pwaUrl)
+			document.body.classList.add(HIDE_SITE_HEADER_CLASS)
 		}
 
 		Requests.loadJson(FILE_SAVE_ACCESS, "post", `study_id=${study.id.get()}&page_name=${this.sectionData.depth ? "study" : "navigatedFromHome"}`)
+	}
+
+	public destroy(): void {
+		document.body.classList.remove(HIDE_SITE_HEADER_CLASS)
+		super.destroy()
 	}
 
 	public title(): string {
@@ -164,19 +190,29 @@ export class Content extends SectionContent {
 			? `background:${C.surfaceContainer};color:${C.onSurfaceVariant};border-radius:9999px;padding:4px 14px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;`
 			: `background:rgba(0,71,28,0.10);color:${C.primary};border-radius:9999px;padding:4px 14px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;`
 
+		const coverUrl = study.studyArtwork.get() || this.fallbackCoverUrl
+		const isGeneratedCover = !study.studyArtwork.get()
+
 		return <div style={cardStyle}>
-			{study.studyArtwork.get() &&
-				<div style="width:100%;height:200px;overflow:hidden;">
+			{coverUrl &&
+				<div style="position:relative;width:100%;height:200px;overflow:hidden;">
 					<img
-						src={study.studyArtwork.get()}
+						src={coverUrl}
 						alt={study.title.get()}
 						style="width:100%;height:100%;object-fit:cover;display:block;"
 					/>
+					{isGeneratedCover &&
+						<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+							<div style={`width:92px;height:92px;border-radius:50%;background:${C.primary};border:4px solid rgba(255,255,255,0.92);box-shadow:0 6px 18px rgba(25,28,30,0.28);display:flex;align-items:center;justify-content:center;padding:13px;box-sizing:border-box;`}>
+								{m.trust(iemabotLogoSvg)}
+							</div>
+						</div>
+					}
 				</div>
 			}
 			<div style={bodyStyle}>
-				{!study.studyArtwork.get() &&
-					<div style="width:80px;height:80px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;">
+				{!coverUrl &&
+					<div style={`width:80px;height:80px;margin:0 auto 20px;border-radius:50%;background:${C.primary};display:flex;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;`}>
 						{m.trust(iemabotLogoSvg)}
 					</div>
 				}

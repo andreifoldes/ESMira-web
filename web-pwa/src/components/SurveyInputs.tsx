@@ -36,6 +36,11 @@ const ANCHOR_LABEL_SIZE: Record<string, string> = {
 const anchorLabelClass = (textSizeClass: string): string =>
   ANCHOR_LABEL_SIZE[textSizeClass] ?? 'text-[11px]';
 
+// Question text is rich-text HTML; strip tags so it's safe to use in aria-labels
+// (a screen reader would otherwise announce literal "<div>" markup).
+const plainText = (html: string): string =>
+  html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
 interface Props {
   question: PreloadedQuestion;
   progress: number;
@@ -94,10 +99,11 @@ export function SurveyInputs({
               className={cn('text-on-surface leading-relaxed esmira-rich', textSizeClass)}
               dangerouslySetInnerHTML={{ __html: question.text }}
             />
-          ) : question.type === 'audio' ? (
-            // Voice-memo prompts are authored in ESMira's rich-text editor, so the
-            // text is HTML (<div>/<br>). Render it as HTML rather than escaped plain
-            // text, otherwise participants would see literal markup.
+          ) : question.is_html ? (
+            // Every question's text is authored in ESMira's rich-text editor, so it
+            // may contain HTML (<div>/<br>/<b>…). Render it as rich text rather than
+            // escaped plain text, otherwise participants see literal markup. Covers
+            // every input type's label, not just voice memos.
             <div
               className={cn('font-semibold text-on-surface leading-snug mb-2 esmira-rich', textSizeClass)}
               dangerouslySetInnerHTML={{ __html: question.text }}
@@ -349,7 +355,7 @@ function NumberInput({ question, onRespond }: { question: PreloadedQuestion; onR
         step={question.decimal ? '0.5' : '1'}
         value={val}
         onChange={(e) => setVal(e.target.value)}
-        aria-label={question.text || 'Enter a number'}
+        aria-label={plainText(question.text) || 'Enter a number'}
         className="flex-1 bg-surface-container-low rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50"
         placeholder="Enter a number"
       />
@@ -433,7 +439,7 @@ function DateInput({ question, onRespond }: { question: PreloadedQuestion; onRes
         type="date"
         value={val}
         onChange={(e) => setVal(e.target.value)}
-        aria-label={question.text || 'Select a date'}
+        aria-label={plainText(question.text) || 'Select a date'}
         className="flex-1 bg-surface-container-low rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50"
       />
     </ConfirmRow>
@@ -457,7 +463,7 @@ function VaScale({ question, onRespond, labelSizeClass }: { question: PreloadedQ
         max={max}
         value={val}
         onChange={(e) => setVal(Number(e.target.value))}
-        aria-label={question.text || 'Visual analogue scale'}
+        aria-label={plainText(question.text) || 'Visual analogue scale'}
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuenow={val}

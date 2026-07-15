@@ -70,6 +70,12 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
     id: input.name,
     text: input.text ?? '',
     required: input.required ?? false,
+    // Every ESMira `text` field is authored in the rich-text (TipTap) editor, so it
+    // may contain HTML (<div>/<br>/<b>…) regardless of input type. Flag it globally
+    // so both the live question card and the settled thread bubble render it as rich
+    // text instead of dumping literal markup. Stripped back to plain text where a
+    // string is needed (cognitive titles, aria-labels).
+    is_html: true,
     show_if: null,
     other_specify: null,
   };
@@ -160,6 +166,7 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       // Voice memo. The response value is an integer upload identifier (set when
       // the participant saves the recording); the audio bytes upload separately to
       // file_uploads.php and the backend links them to this key's CSV column.
+      // (Prompt text renders as rich text via the `base.is_html` flag.)
       return {
         ...base,
         type: 'audio',
@@ -177,13 +184,12 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       return {
         ...base,
         type: 'info',
-        is_html: true,
         text: `${input.text ?? ''}${input.url ? `<br/><img src="${input.url}" alt="" style="max-width:100%;border-radius:12px"/>` : ''}`,
       };
     case 'text':
     default:
       // Static display text (no anchor): show as an info bubble, no value.
-      return { ...base, type: 'info', is_html: true };
+      return { ...base, type: 'info' };
   }
 }
 

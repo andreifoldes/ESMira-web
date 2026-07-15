@@ -110,6 +110,14 @@ class PushScheduler {
 								$baseTimes = [$dayMidnightLocal + (int) ($st['startTimeOfDay'] ?? 0) + $offsetMs];
 							}
 
+							// occKey identifies the SIGNAL WINDOW (day index + configured start-of-day),
+							// matching the PWA's own occurrence key in availability.ts (windowsForDay:
+							// `${dayIndex}:${startTimeOfDay}`). It lets the service worker suppress a
+							// completed once-per-notification occurrence. Random draws deliberately share
+							// their window's key (the configured start, not the sampled time), exactly as
+							// the PWA keys them — so client and server agree despite differing random rolls.
+							$occKey = "$d:" . (int) ($st['startTimeOfDay'] ?? 0);
+
 							foreach($baseTimes as $T) {
 								$T = (int) $T;
 								if($durStart > 0 && $T < $durStart)
@@ -125,7 +133,7 @@ class PushScheduler {
 								if($T > $sinceMs && $T <= $nowMs)
 									$out[] = [
 										'type' => 'availability', 'qid' => $qInternalId, 'title' => $qTitle,
-										'body' => $displayBody, 'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+										'body' => $displayBody, 'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc, 'occKey' => $occKey,
 									];
 								for($k = 1; $k <= $reminderCount; $k++) {
 									$rt = $T + $k * $reminderDelayMs;
@@ -135,7 +143,7 @@ class PushScheduler {
 										continue;
 									$out[] = [
 										'type' => 'reminder', 'qid' => $qInternalId, 'title' => $qTitle,
-										'body' => $displayBody, 'timestamp' => $rt, 'windowStart' => $T, 'deadline' => $deadlineUtc,
+										'body' => $displayBody, 'timestamp' => $rt, 'windowStart' => $T, 'deadline' => $deadlineUtc, 'occKey' => $occKey,
 									];
 								}
 							}
@@ -167,7 +175,7 @@ class PushScheduler {
 						$deadlineUtc = $deadlineTod === null ? null : $dayMidnightLocal + $deadlineTod + $offsetMs;
 						$out[] = [
 							'type' => 'availability', 'qid' => $qInternalId, 'title' => $qTitle,
-							'body' => self::appendDeadline($availBody, $includeDeadline, $deadlineTod),
+							'body' => self::appendDeadline($availBody, $includeDeadline, $deadlineTod), 'occKey' => "spec:$d",
 							'timestamp' => $T, 'windowStart' => $T, 'deadline' => $deadlineUtc,
 						];
 					}
@@ -182,7 +190,11 @@ class PushScheduler {
 	/** [body, reminderCount, reminderDelayMs] for a trigger's notifying action, or null. */
 	private static function notificationAction(array $at): ?array {
 		foreach(($at['actions'] ?? []) as $a) {
-			if(in_array((int) ($a['type'] ?? 0), self::NOTIFICATION_ACTION_TYPES, true)) {
+			// Action.type defaults to 1 (Invitation) in the model, and DataStructure omits
+			// default-valued fields when serialising — so a plain invitation action has NO
+			// `type` key. Default the missing value to 1, not 0, or those (very common)
+			// actions would never notify.
+			if(in_array((int) ($a['type'] ?? 1), self::NOTIFICATION_ACTION_TYPES, true)) {
 				$msg   = $a['msgText'] ?? '';
 				$body  = (is_string($msg) && $msg !== '') ? $msg : 'You have a questionnaire to complete.';
 				$count = max(0, (int) ($a['reminder_count'] ?? 0));

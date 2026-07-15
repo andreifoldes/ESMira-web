@@ -24,6 +24,7 @@ import {
   submitCognitiveTrials, serverRootUrl, sendParticipantMessage, loadUploadProtocol,
   flushSubmitQueue, pendingSubmitCount, loadErrorLog, clearErrorLog, installErrorLogger,
   subscribeToPush, fetchNextNotification, logEvent, reportClientInfo, sendWelcomePush, reportPushEvent,
+  submitJoined,
   startWearableConnect, fetchWearableStatus, disconnectWearable,
   claimPidLock, releasePidLock, getOrCreateDeviceToken,
 } from './lib/esmiraApi';
@@ -303,6 +304,8 @@ export default function App() {
   const [awaitingWelcomeConfirm, setAwaitingWelcomeConfirm] = useState(false);
   // Next scheduled reminder (UTC ms) shown in the Details panel; null = none/unknown.
   const [nextNotification, setNextNotification] = useState<number | null>(null);
+  // Result of the on-demand "send a test notification" button in Settings → Notifications.
+  const [testPushStatus, setTestPushStatus] = useState<'idle' | 'sending' | 'sent' | 'local' | 'error'>('idle');
   const [errorText, setErrorText] = useState('');
   const [errorStatus, setErrorStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -523,6 +526,28 @@ export default function App() {
         // informedConsentForm is a plain-text field — keep it plain (line breaks preserved).
         if (study.studyDescription) pushBot(study.studyDescription, true);
         const consented = localStorage.getItem(`esmira_consent_${study.id}`) === '1';
+        // Resolve enrollment for an already-consented participant before entering the study
+        // (new participants are handled at consent in onConsent). Adopt the SERVER's anchor
+        // (join time, else subscribe time) when it already has one, so a returning device's
+        // schedule is NOT shifted by a client-side stamp; only mint + record a fresh join
+        // when neither the client nor the server has an anchor. Awaited so every downstream
+        // ensureEnrollment (enterList, the backstop effect) reads the resolved value.
+        const joinKey = `esmira_joined_${study.id}_${uid}`;
+        if (consented && uid && !localStorage.getItem(joinKey)) {
+          const subscribed = localStorage.getItem(`esmira_push_subscribed_${study.id}`) === '1';
+          const serverAnchor = subscribed && study.webPushEnabled
+            ? (await fetchNextNotification(study.id, uid)).joinedAt
+            : null;
+          if (serverAnchor != null) {
+            localStorage.setItem(joinKey, String(serverAnchor));
+            ensureEnrollment(study.id, uid, serverAnchor);
+          } else {
+            const joinedAt = Date.now();
+            localStorage.setItem(joinKey, String(joinedAt));
+            ensureEnrollment(study.id, uid, joinedAt);
+            void submitJoined({ study, serverVersion, accessKey, userId: uid, joinedAt });
+          }
+        }
         if (study.informedConsentForm && !consented) {
           pushBot(study.informedConsentForm);
           setPhase('consent');
@@ -561,6 +586,18 @@ export default function App() {
     }
     pushUser('I consent');
     localStorage.setItem(`esmira_consent_${study.id}`, '1');
+    // Enrollment = consent. Stamp the join time now (it drives "Joined at" and the
+    // schedule anchor), anchor availability day-counting to it, and record the "joined"
+    // event server-side immediately — ESMira's native apps also join at enrollment
+    // rather than deferring to the first questionnaire. Guarded so it runs once.
+    const uid = userIdRef.current;
+    const joinedKey = `esmira_joined_${study.id}_${uid}`;
+    if (uid && !localStorage.getItem(joinedKey)) {
+      const joinedAt = Date.now();
+      localStorage.setItem(joinedKey, String(joinedAt));
+      ensureEnrollment(study.id, uid, joinedAt);
+      void submitJoined({ study, serverVersion, accessKey, userId: uid, joinedAt });
+    }
     const savedName = localStorage.getItem(`esmira_participant_${study.id}`) || '';
     if (!savedName) {
       pushBot('Thank you. What name would you like to go by?');
@@ -643,6 +680,7 @@ export default function App() {
     setUpdateStatus('idle');
     setErrorStatus('idle');
     setErrorText('');
+    setTestPushStatus('idle');
     if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission);
     setA11yOpen(true);
   };
@@ -729,6 +767,22 @@ export default function App() {
     localStorage.setItem(key, '1');
     await deliverWelcome(s);
   }, [deliverWelcome]);
+
+  // On-demand self-test from Settings → Notifications: refresh the subscription (which
+  // self-heals a rotated/mismatched VAPID key) then send a real server push, falling back
+  // to a local notification if the server can't deliver. Lets a participant verify that
+  // reminders reach their device at any time, not only during onboarding.
+  const sendTestPush = useCallback(async (s: EsmiraStudy) => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    setTestPushStatus('sending');
+    try {
+      await subscribePush();
+      const serverOk = await deliverWelcome(s);
+      setTestPushStatus(serverOk ? 'sent' : 'local');
+    } catch {
+      setTestPushStatus('error');
+    }
+  }, [subscribePush, deliverWelcome]);
 
   // ── Notifications: ask the browser for permission, then subscribe to push ──
   const requestNotifications = async () => {
@@ -862,7 +916,7 @@ export default function App() {
   useEffect(() => {
     if (!aboutOpen || !study?.webPushEnabled || !userId) { setNextNotification(null); return; }
     let cancelled = false;
-    void fetchNextNotification(study.id, userId).then((t) => { if (!cancelled) setNextNotification(t); });
+    void fetchNextNotification(study.id, userId).then((r) => { if (!cancelled) setNextNotification(r.next); });
     return () => { cancelled = true; };
   }, [aboutOpen, study, userId]);
 
@@ -938,7 +992,7 @@ export default function App() {
   // No survey answers are included — only the participant's note and technical
   // context that helps diagnose problems (device, versions, recent JS errors).
   const buildErrorReport = (note: string): string => {
-    const lines: string[] = ['--- ESMira error report ---'];
+    const lines: string[] = ['--- iEMAbot error report ---'];
     const trimmed = note.trim();
     if (trimmed) lines.push('', 'Participant note:', trimmed);
     lines.push(
@@ -1037,7 +1091,9 @@ export default function App() {
     if (q) {
       // Settle the question into the thread as a bot bubble, then the answer.
       // Tag both with the question id so "Change response" can rewind/remove them.
-      pushBot(q.text, false, questionId);
+      // Rich-text prompts (e.g. voice memos) carry HTML in `text`; render them as
+      // HTML like the live card, otherwise the bubble shows literal <div>/<br>.
+      pushBot(q.text, !!q.is_html, questionId);
       pushUser(formatAnswer(q, value), questionId);
     }
     const next = engine.respond(questionId, value);
@@ -1161,8 +1217,10 @@ export default function App() {
       pageDurations: '',
       audioIdentifiers: audioIdsRef.current,
     });
-    // Record the join time (epoch ms) on first submission; bump the count of
-    // completed questionnaires. Both surface in the About / Study information panel.
+    // Join time is normally stamped at consent (see onConsent). This is a fallback for
+    // participants who joined before that flow existed (no stored join time): record it on
+    // first submission so "Joined at" and the schedule anchor still resolve. Also bump the
+    // completed-questionnaire count. Both surface in the About / Study information panel.
     if (newParticipant) localStorage.setItem(joinedKey, String(submittedAt));
     const completedKey = `esmira_completed_${study.id}_${userId}`;
     localStorage.setItem(completedKey, String(Number(localStorage.getItem(completedKey) || '0') + 1));
@@ -1174,7 +1232,7 @@ export default function App() {
         recordCompletion(study.id, userId, q, anchor, submittedAt);
         // Mirror to IndexedDB so the SW suppresses further prompts for this questionnaire.
         const rec = loadCompletions(study.id, userId)[q.internalId];
-        if (rec) void mirrorCompletion(study.id, userId, q.internalId, rec.lastAt, rec.count);
+        if (rec) void mirrorCompletion(study.id, userId, q.internalId, rec.lastAt, rec.count, rec.occ);
       }
     }
     setSubmitting(false);
@@ -1341,11 +1399,11 @@ export default function App() {
       )}
 
       {/* Header */}
-      <header aria-label={study?.title ?? 'ESMira Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
+      <header aria-label={study?.title ?? 'iEMAbot Study'} className="fixed top-0 w-full z-50 bg-[#075E54] dark:bg-surface-container-lowest text-white dark:text-on-surface shadow-md flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <img src={`${import.meta.env.BASE_URL}esmira-logo.svg`} alt="" aria-hidden="true" className="w-10 h-10 rounded-full shrink-0 object-cover" />
           <div className="flex flex-col min-w-0">
-            <h1 className="text-base font-bold leading-none truncate">{study?.title ?? 'ESMira Study'}</h1>
+            <h1 className="text-base font-bold leading-none truncate">{study?.title ?? 'iEMAbot Study'}</h1>
             <span className="text-[10px] opacity-80 uppercase tracking-widest font-semibold truncate">
               {headerStatus}
             </span>
@@ -1811,7 +1869,7 @@ export default function App() {
       {/* Settings modal — appearance + app-level features (error report, notifications, update, about) */}
       <AnimatePresence>
         {a11yOpen && (() => {
-          const settingsTitle = settingsView === 'about' ? 'About ESMira'
+          const settingsTitle = settingsView === 'about' ? 'About iEMAbot'
             : settingsView === 'notifications' ? 'Notifications'
             : settingsView === 'errorReport' ? 'Send error report'
             : settingsView === 'wearables' ? 'Connect wearables'
@@ -1882,14 +1940,16 @@ export default function App() {
                         {updateStatus === 'error' && <span className="text-xs font-semibold text-red-600 dark:text-red-400 shrink-0">Failed</span>}
                         {updateStatus === 'idle' && <ChevronRight size={18} className="text-outline-variant shrink-0" aria-hidden="true" />}
                       </button>
-                      <AboutLinkButton icon={Info} label="About ESMira" onClick={() => setSettingsView('about')} />
+                      <AboutLinkButton icon={Info} label="About iEMAbot" onClick={() => setSettingsView('about')} />
                     </div>
                   </div>
                 </div>
               ) : settingsView === 'about' ? (
                 <AboutEsmiraPanel serverVersion={serverVersion} />
               ) : settingsView === 'notifications' ? (
-                <NotificationsPanel perm={notifPerm} onEnable={requestNotifications} />
+                <NotificationsPanel perm={notifPerm} onEnable={requestNotifications}
+                  onTest={() => { if (study) void sendTestPush(study); }}
+                  testStatus={testPushStatus} canTest={!!study && !!vapidKey} />
               ) : settingsView === 'wearables' ? (
                 <WearablesPanel
                   providers={offeredWearables}
@@ -1932,7 +1992,9 @@ export default function App() {
           const detailTitle = aboutView === 'description' ? 'Study description'
             : aboutView === 'consent' ? 'Informed consent'
             : 'Upload protocol';
-          const detailHtml = aboutView === 'description' ? study?.studyDescription : study?.informedConsentForm;
+          // studyDescription is rich text (HTML); informedConsentForm is a plain-text
+          // field whose line breaks must be preserved (rendered below accordingly).
+          const detailContent = aboutView === 'description' ? study?.studyDescription : study?.informedConsentForm;
           const protocolEntries = study && aboutView === 'protocol' ? loadUploadProtocol(study.id, userId) : [];
           return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2 }}
@@ -2022,8 +2084,12 @@ export default function App() {
                 ) : (
                   // tabIndex={0} so keyboard users can scroll this text-only region (WCAG 2.1.1).
                   <div className="p-5 overflow-y-auto custom-scrollbar focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" tabIndex={0} role="region" aria-label={detailTitle}>
-                    {detailHtml
-                      ? <div className={cn('leading-relaxed esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: detailHtml }} />
+                    {detailContent
+                      ? (aboutView === 'description'
+                          // Rich text (HTML) — render formatted.
+                          ? <div className={cn('leading-relaxed esmira-rich', textSizeClass)} dangerouslySetInnerHTML={{ __html: detailContent }} />
+                          // Plain text — preserve line breaks exactly like the chat stream.
+                          : <p className={cn('leading-relaxed whitespace-pre-wrap', textSizeClass)}>{detailContent}</p>)
                       : <p className="text-sm text-on-surface-variant">Not provided for this study.</p>}
                   </div>
                 )}
@@ -2165,7 +2231,7 @@ function ProtocolRow({ entry }: { entry: UploadProtocolEntry }) {
         </div>
       </div>
       <span className={cn('text-xs font-semibold shrink-0 mt-1',
-        sent ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}>
+        sent ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400')}>
         {sent ? 'Sent' : 'Pending'}
       </span>
     </li>
@@ -2191,7 +2257,7 @@ function AboutEsmiraPanel({ serverVersion }: { serverVersion: number }) {
       <div className="flex items-center gap-3">
         <img src={`${import.meta.env.BASE_URL}esmira-logo.svg`} alt="" className="w-12 h-12 shrink-0" />
         <div className="min-w-0">
-          <p className="font-bold text-lg leading-none">ESMira</p>
+          <p className="font-bold text-lg leading-none">iEMAbot</p>
           <p className="text-xs text-on-surface-variant mt-1">Web participant interface</p>
         </div>
       </div>
@@ -2217,7 +2283,13 @@ function AboutEsmiraPanel({ serverVersion }: { serverVersion: number }) {
 }
 
 /** Notifications troubleshooting sub-panel: current permission + guidance. */
-function NotificationsPanel({ perm, onEnable }: { perm: NotificationPermission | 'unsupported'; onEnable: () => void }) {
+function NotificationsPanel({ perm, onEnable, onTest, testStatus, canTest }: {
+  perm: NotificationPermission | 'unsupported';
+  onEnable: () => void;
+  onTest: () => void;
+  testStatus: 'idle' | 'sending' | 'sent' | 'local' | 'error';
+  canTest: boolean;
+}) {
   const status = perm === 'granted'
     ? { icon: <CheckCircle size={18} aria-hidden="true" />, text: 'Notifications are enabled.', cls: 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400' }
     : perm === 'denied'
@@ -2242,6 +2314,17 @@ function NotificationsPanel({ perm, onEnable }: { perm: NotificationPermission |
           You've blocked notifications. To turn them back on, open your browser's site settings for this
           page, allow notifications, then reload.
         </p>
+      )}
+      {perm === 'granted' && canTest && (
+        <div className="flex flex-col gap-1.5" aria-live="polite">
+          <button onClick={onTest} disabled={testStatus === 'sending'}
+            className="self-start inline-flex items-center gap-2 bg-primary text-on-primary font-bold px-4 py-2.5 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-60">
+            <BellRing size={16} aria-hidden="true" /> {testStatus === 'sending' ? 'Sending…' : 'Send a test notification'}
+          </button>
+          {testStatus === 'sent' && <p className="text-sm text-green-600 dark:text-green-400">✓ Sent — you should see it shortly.</p>}
+          {testStatus === 'local' && <p className="text-sm text-on-surface-variant">Shown on this device (couldn't confirm a server push).</p>}
+          {testStatus === 'error' && <p className="text-sm text-red-600 dark:text-red-400">Couldn't send a test — please try again.</p>}
+        </div>
       )}
       <div>
         <p className="font-semibold text-sm mb-2">If reminders aren't arriving:</p>

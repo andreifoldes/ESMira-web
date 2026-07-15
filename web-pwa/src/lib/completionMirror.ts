@@ -20,6 +20,9 @@ export interface CompletionMirror {
   lastAt: number;
   /** Total completions of this questionnaire. */
   count: number;
+  /** Per-occurrence completion times, keyed by window key `${dayIndex}:${startTimeOfDay}`
+   *  (see availability.ts). Lets the SW suppress a completed once-per-notification signal. */
+  occ?: Record<string, number>;
 }
 
 function keyOf(studyId: number, userId: string, qid: number): string {
@@ -28,10 +31,13 @@ function keyOf(studyId: number, userId: string, qid: number): string {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    // v2 adds the 'shown' store used by the service worker's display ledger (see sw.ts).
+    // Both openers must agree on the version + create any missing stores in the upgrade.
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('shown')) db.createObjectStore('shown', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
@@ -69,9 +75,10 @@ export async function mirrorCompletion(
   qid: number,
   lastAt: number,
   count: number,
+  occ?: Record<string, number>,
 ): Promise<void> {
   try {
-    await tx('readwrite', (s) => s.put({ key: keyOf(studyId, userId, qid), lastAt, count } satisfies CompletionMirror));
+    await tx('readwrite', (s) => s.put({ key: keyOf(studyId, userId, qid), lastAt, count, occ } satisfies CompletionMirror));
   } catch {
     /* storage unavailable — SW suppression falls back to the server's own heuristic */
   }
@@ -81,12 +88,12 @@ export async function mirrorCompletion(
 export async function backfillCompletions(
   studyId: number,
   userId: string,
-  completions: Record<number, { lastAt: number; count: number }>,
+  completions: Record<number, { lastAt: number; count: number; occ?: Record<string, number> }>,
 ): Promise<void> {
   try {
     await Promise.all(
       Object.entries(completions).map(([qid, rec]) =>
-        mirrorCompletion(studyId, userId, Number(qid), rec.lastAt, rec.count)),
+        mirrorCompletion(studyId, userId, Number(qid), rec.lastAt, rec.count, rec.occ)),
     );
   } catch {
     /* ignore */

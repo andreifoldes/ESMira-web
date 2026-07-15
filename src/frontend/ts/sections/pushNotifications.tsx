@@ -19,6 +19,8 @@ interface PushStats {
 		series: { day: number, sent: number, received: number, clicked: number }[]
 		participants: { u: string, sent: number, received: number, clicked: number }[]
 	}
+	sender: { lastRunMs: number, studies: number, queued: number } | null
+	nowMs: number
 }
 
 /** Percentage helper, guarding divide-by-zero. */
@@ -79,6 +81,25 @@ export class Content extends SectionContent {
 		}
 		m.redraw()
 		setTimeout(() => { delete this.participantTestResults[userId]; m.redraw() }, 4000)
+	}
+
+	/**
+	 * Sender liveness. Delivery counts can look "stuck" for many reasons, but a heartbeat
+	 * that hasn't advanced in minutes means the per-minute cron itself is dead — a distinct,
+	 * higher-priority failure that the funnel alone can't reveal. Fresh (<3 min) shows the
+	 * last-run age; stale or never-run shows a warning.
+	 */
+	private senderView(s: PushStats): Vnode<any, any> {
+		const hb = s.sender
+		if(!hb)
+			return <div class="center"><small class="highlight">⚠ {Lang.get("web_push_sender_never")}</small></div>
+		const ageSec = Math.max(0, Math.round((s.nowMs - hb.lastRunMs) / 1000))
+		const ago = ageSec < 90 ? `${ageSec}s` : `${Math.round(ageSec / 60)} min`
+		return <div class="center">
+			{ageSec > 180
+				? <small class="highlight">⚠ {Lang.get("web_push_sender_stale", ago)}</small>
+				: <small>{Lang.getWithColon("web_push_sender")} {Lang.get("web_push_sender_ago", ago)}</small>}
+		</div>
 	}
 
 	private funnelView(s: PushStats): Vnode<any, any> {
@@ -182,6 +203,8 @@ export class Content extends SectionContent {
 						</div>
 					})
 				)}
+
+				{DashRow(DashElement("stretched", { content: this.senderView(s) }))}
 
 				{TitleRow(Lang.get("web_push_funnel"))}
 				{DashRow(DashElement("stretched", { content: this.funnelView(s) }))}

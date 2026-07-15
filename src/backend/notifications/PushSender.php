@@ -31,8 +31,13 @@ class PushSender {
 	public static function run(): array {
 		$publicKey  = Configs::get('vapid_public_key');
 		$privateKey = Configs::get('vapid_private_key');
-		if(empty($publicKey) || empty($privateKey))
+		if(empty($publicKey) || empty($privateKey)) {
+			// Still stamp the heartbeat: the cron IS alive, it just can't send without VAPID.
+			// The admin panel already surfaces "no VAPID key" separately, so this lets it
+			// distinguish that from "the sender has stopped running".
+			self::writeHeartbeat(0, 0);
 			return ['error' => 'VAPID keys not configured (run cli/generate_vapid.php)'];
+		}
 
 		$subject = Configs::get('vapid_subject');
 		if(empty($subject))
@@ -95,15 +100,20 @@ class PushSender {
 				}
 
 				$stateFile = $file . '.state';
-				$state     = json_decode(@file_get_contents($stateFile), true);
+				$state     = self::readJsonFile($stateFile);
 				$cursor    = (is_array($state) && isset($state['cursor'])) ? (int) $state['cursor'] : $now;
 				$realized  = (is_array($state) && isset($state['realized']) && is_array($state['realized'])) ? $state['realized'] : [];
+				// Per-occurrence "already sent" ledger (key => sentAtMs). Belt-and-suspenders
+				// over the cursor: the exact same notification (type:qid:sendTime) is never
+				// queued twice, even across cursor resets. Pruned to a rolling window below.
+				$sent      = (is_array($state) && isset($state['sent']) && is_array($state['sent'])) ? $state['sent'] : [];
 
 				$occurrences = PushScheduler::computeDueOccurrences($study, $anchor, $tz, $cursor, $now, $lastDataSetTime, $realized);
 				// Coalesce everything due for this participant in this run into ONE push so
 				// clients are never flooded. The constant tag (REMINDER_TAG) additionally makes
 				// each successive push replace the previous one, so at most one is ever visible.
-				$payload = self::buildCoalescedPayload($studyId, $userId, $study, $occurrences);
+				// $sent is updated in place with the keys we actually queue this run.
+				$payload = self::buildCoalescedPayload($studyId, $userId, $study, $occurrences, $sent, $now);
 				if($payload !== null) {
 					try {
 						$sub = Subscription::create([
@@ -122,8 +132,10 @@ class PushSender {
 					}
 				}
 				// Advance the cursor and persist realized random times (so they stay
-				// stable across the per-minute runs) whether or not anything was due.
-				try { FileSystemBasics::writeFile($stateFile, json_encode(['cursor' => $now, 'realized' => $realized])); }
+				// stable across the per-minute runs) and the sent ledger (pruned to a
+				// rolling 48h window) whether or not anything was due.
+				$sent = self::pruneSentLedger($sent, $now);
+				try { FileSystemBasics::writeFile($stateFile, json_encode(['cursor' => $now, 'realized' => $realized, 'sent' => $sent])); }
 				catch(Throwable $e) { /* non-fatal */ }
 			}
 		}
@@ -139,7 +151,46 @@ class PushSender {
 				self::removeSubscriptionByEndpoint($endpoint);
 		}
 
+		self::writeHeartbeat($studiesProcessed, $queued);
 		return ['studies' => $studiesProcessed, 'queued' => $queued];
+	}
+
+	/**
+	 * Rewrite the global sender heartbeat. Delivery/funnel stats show what was sent, but
+	 * can't reveal a silently-dead cron (they simply stop growing). This heartbeat lets the
+	 * admin panel show liveness — "sender last ran Ns ago" vs. "hasn't run in X min".
+	 * Best-effort — never breaks a send.
+	 */
+	private static function writeHeartbeat(int $studies, int $queued): void {
+		try {
+			FileSystemBasics::writeFile(PathsFS::filePushHeartbeat(), json_encode([
+				'lastRunMs' => Main::getMilliseconds(),
+				'studies'   => $studies,
+				'queued'    => $queued,
+			]));
+		}
+		catch(Throwable $e) { /* non-fatal */ }
+	}
+
+	/**
+	 * Read + JSON-decode a file to an array, or null if it is missing/unreadable/invalid.
+	 * Guards json_decode against the `false` that file_get_contents returns for a missing
+	 * file — under declare(strict_types=1) that `false` is a fatal TypeError, not a benign
+	 * null. The per-participant .state file is routinely absent (it doesn't exist until the
+	 * first successful run), so this must never throw.
+	 */
+	private static function readJsonFile(string $path): ?array {
+		$raw = @file_get_contents($path);
+		if(!is_string($raw))
+			return null;
+		$data = json_decode($raw, true);
+		return is_array($data) ? $data : null;
+	}
+
+	/** The sender heartbeat ({lastRunMs, studies, queued}), or null if it has never run. */
+	public static function readHeartbeat(): ?array {
+		$data = self::readJsonFile(PathsFS::filePushHeartbeat());
+		return ($data !== null && isset($data['lastRunMs'])) ? $data : null;
 	}
 
 	/** Number of registered push subscriptions for a study (for the admin panel). */
@@ -289,21 +340,36 @@ class PushSender {
 
 	/**
 	 * Collapse a participant's due occurrences into a single push payload, or null if
-	 * none are due. Keeps one entry per questionnaire (the most recent occurrence), and
-	 * carries per-item {qid, windowStart, deadline, title, body} so the service worker
-	 * can drop already-completed questionnaires and re-render the remaining count.
+	 * none are due (or all were already sent). Keeps one entry per questionnaire (the most
+	 * recent occurrence), and carries per-item {qid, key, windowStart, deadline, once,
+	 * dailyOnce, onceNotif, occKey, title, body} so the service worker can drop
+	 * already-completed / already-shown questionnaires and re-render the remaining count.
+	 *
+	 * Per-occurrence de-duplication: each item's `key` is `type:qid:sendTime`, which is the
+	 * identity of one notification (a specific beep/window, or a specific reminder). Items
+	 * whose key is already in $sent are skipped so the exact same notification is never sent
+	 * twice; kept keys are recorded into $sent (updated in place).
 	 *
 	 * @param array $occurrences items from PushScheduler::computeDueOccurrences
+	 * @param array $sent        key => sentAtMs ledger, mutated in place
 	 */
-	private static function buildCoalescedPayload(int $studyId, string $userId, array $study, array $occurrences): ?array {
+	private static function buildCoalescedPayload(int $studyId, string $userId, array $study, array $occurrences, array &$sent, int $nowMs): ?array {
 		if(empty($occurrences))
 			return null;
 
-		// qid → completableOnce, so the service worker can also suppress a one-shot
-		// questionnaire that was completed on an earlier day (windowStart wouldn't catch that).
+		// qid → completion-rule flags, so the service worker can suppress reminders for
+		// questionnaires already satisfied in ways windowStart alone wouldn't catch:
+		//   once     (completableOnce)              — completed on any earlier day
+		//   dailyOnce(completableOncePerDay)        — completed earlier today, before this signal
+		//   onceNotif(completableOncePerNotification)— this specific occurrence (occKey) done
 		$onceByQid = [];
+		$perDayByQid = [];
+		$onceNotifByQid = [];
 		foreach(($study['questionnaires'] ?? []) as $qi => $q) {
-			$onceByQid[(int) ($q['internalId'] ?? $qi)] = !empty($q['completableOnce']);
+			$id = (int) ($q['internalId'] ?? $qi);
+			$onceByQid[$id]      = !empty($q['completableOnce']);
+			$perDayByQid[$id]    = !empty($q['completableOncePerDay']);
+			$onceNotifByQid[$id] = !empty($q['completableOncePerNotification']);
 		}
 
 		// One entry per questionnaire — keep the most recent (a reminder supersedes its base).
@@ -317,20 +383,31 @@ class PushSender {
 		$items = [];
 		$anyReminder = false;
 		foreach($byQid as $occ) {
-			if(($occ['type'] ?? '') === 'reminder')
+			$qid  = (int) ($occ['qid'] ?? 0);
+			$type = (($occ['type'] ?? '') === 'reminder') ? 'reminder' : 'availability';
+			$key  = $type . ':' . $qid . ':' . (int) $occ['timestamp'];
+			if(isset($sent[$key])) // exact same occurrence already sent — skip the duplicate
+				continue;
+			$sent[$key] = $nowMs;
+			if($type === 'reminder')
 				$anyReminder = true;
-			$qid = (int) ($occ['qid'] ?? 0);
 			$items[] = [
 				'qid'         => $qid,
+				'key'         => $key,
 				'windowStart' => (int) ($occ['windowStart'] ?? $occ['timestamp']),
 				'deadline'    => isset($occ['deadline']) ? $occ['deadline'] : null,
 				'once'        => (bool) ($onceByQid[$qid] ?? false),
+				'dailyOnce'   => (bool) ($perDayByQid[$qid] ?? false),
+				'onceNotif'   => (bool) ($onceNotifByQid[$qid] ?? false),
+				'occKey'      => isset($occ['occKey']) ? (string) $occ['occKey'] : null,
 				'title'       => (string) ($occ['title'] ?? 'ESMira'),
 				'body'        => (string) ($occ['body'] ?? ''),
 			];
 		}
 
 		$count = count($items);
+		if($count === 0) // everything due was already sent in an earlier run — nothing new
+			return null;
 		$studyTitle = (is_string($study['title'] ?? null) && $study['title'] !== '') ? $study['title'] : 'ESMira';
 		if($count === 1) {
 			$title = $items[0]['title'];
@@ -355,6 +432,16 @@ class PushSender {
 			// The SW uses this when it drops some completed items and must re-count.
 			'bodyTemplate' => 'You have %d questionnaires to complete.',
 		];
+	}
+
+	/** Drop sent-ledger entries older than 48h so the per-participant .state stays small. */
+	private static function pruneSentLedger(array $sent, int $nowMs): array {
+		$cutoff = $nowMs - 48 * 3600 * 1000;
+		foreach($sent as $k => $ts) {
+			if((int) $ts < $cutoff)
+				unset($sent[$k]);
+		}
+		return $sent;
 	}
 
 	/** Numeric study folders under the studies root. */

@@ -165,22 +165,30 @@ export async function reportPushEvent(args: {
   }
 }
 
+export interface PushStatus {
+  /** Next scheduled reminder time (UTC ms), or null if none upcoming / push off. */
+  next: number | null;
+  /** The schedule anchor the server used (join time, else subscribe time), or null. */
+  joinedAt: number | null;
+}
+
 /**
- * Ask the server for this participant's next scheduled reminder time (UTC ms),
- * computed from the study schedule. Returns null if none is upcoming or push is
- * off. Best-effort: never throws (purely informational for the Details panel).
+ * Ask the server for this participant's next scheduled reminder and the schedule
+ * anchor it used. The client adopts `joinedAt` so an already-enrolled participant's
+ * timeline isn't shifted by a client-side backfill. Best-effort: never throws.
  */
-export async function fetchNextNotification(studyId: number, userId: string): Promise<number | null> {
+export async function fetchNextNotification(studyId: number, userId: string): Promise<PushStatus> {
   try {
     const resp = await fetch(
       `${API_ROOT}api/push_status.php?studyId=${studyId}&userId=${encodeURIComponent(userId)}`,
       { headers: { Accept: 'application/json' } },
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) return { next: null, joinedAt: null };
     const env = await resp.json();
-    return env?.success ? (env.dataset?.nextNotification ?? null) : null;
+    if (!env?.success) return { next: null, joinedAt: null };
+    return { next: env.dataset?.nextNotification ?? null, joinedAt: env.dataset?.joinedAt ?? null };
   } catch {
-    return null;
+    return { next: null, joinedAt: null };
   }
 }
 
@@ -560,6 +568,61 @@ export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
       ...(audioIds.length ? { audio: { studyId: args.study.id, userId: args.userId, identifiers: audioIds } } : {}),
     });
     saveQueue(queue);
+    return false;
+  }
+}
+
+export interface JoinArgs {
+  study: EsmiraStudy;
+  serverVersion: number;
+  accessKey: string;
+  userId: string;
+  /** Consent-acceptance time (epoch ms) — the enrollment/join timestamp. */
+  joinedAt: number;
+}
+
+function buildJoinPayload(args: JoinArgs): DatasetPayload {
+  const model = navigator.userAgent;
+  return {
+    userId: args.userId,
+    appType: 'Web',
+    appVersion: String(args.serverVersion),
+    serverVersion: args.serverVersion,
+    dataset: [{
+      studyId: args.study.id,
+      studyVersion: args.study.version ?? 0,
+      studySubVersion: args.study.subVersion ?? 0,
+      studyLang: args.study.lang ?? 'en',
+      accessKey: args.accessKey,
+      dataSetId: 0,
+      questionnaireName: null,
+      questionnaireInternalId: null,
+      eventType: 'joined',
+      responseTime: args.joinedAt,
+      responses: { model },
+    }],
+  };
+}
+
+/**
+ * Record enrollment ("joined") at consent time — the enrollment event ESMira's native
+ * apps also send on joining, rather than deferring it to the first questionnaire. This
+ * creates the participant's server record (UserData → joinedTime, the push-schedule
+ * anchor) as soon as they consent. Offline-safe: queued and retried like a submission.
+ * Call once, guarded by the `esmira_joined_*` key. Returns true if accepted now.
+ */
+export async function submitJoined(args: JoinArgs): Promise<boolean> {
+  const payload = buildJoinPayload(args);
+  const id = newProtocolId();
+  try {
+    await postDataset(payload);
+    appendProtocol(args.study.id, args.userId, [{ id, time: args.joinedAt, label: 'Joined study', eventType: 'joined', status: 'sent' }]);
+    return true;
+  } catch {
+    const queue = loadQueue();
+    queue.push({ payload, attempts: 1, protocol: { studyId: args.study.id, userId: args.userId, ids: [id] } });
+    saveQueue(queue);
+    appendProtocol(args.study.id, args.userId, [{ id, time: args.joinedAt, label: 'Joined study', eventType: 'joined', status: 'pending' }]);
     return false;
   }
 }
