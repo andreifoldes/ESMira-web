@@ -25,7 +25,7 @@ try {
 	$defaultLang = Configs::get('defaultLang') ?: 'en';
 	$study = json_decode(Configs::getDataStore()->getStudyStore()->getStudyLangConfigAsJson($studyId, $defaultLang), true);
 	if(!is_array($study) || empty($study['webPushEnabled'])) {
-		echo JsonOutput::successObj(['nextNotification' => null]);
+		echo JsonOutput::successObj(['nextNotification' => null, 'joinedAt' => null]);
 		return;
 	}
 
@@ -60,7 +60,11 @@ try {
 		if($next === null || $occ['timestamp'] < $next)
 			$next = $occ['timestamp'];
 	}
-	echo JsonOutput::successObj(['nextNotification' => $next]);
+	// joinedAt is the schedule anchor the server actually used (join time, else subscribe
+	// time). The client adopts it so an already-enrolled participant's timeline isn't
+	// shifted by a client-side backfill. Null when there's no subscription on file.
+	$joinedAt = file_exists($subFile) ? $anchor : null;
+	echo JsonOutput::successObj(['nextNotification' => $next, 'joinedAt' => $joinedAt]);
 }
 catch(Throwable $e) {
 	Main::reportError($e);

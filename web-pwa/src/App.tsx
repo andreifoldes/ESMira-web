@@ -524,16 +524,27 @@ export default function App() {
         // informedConsentForm is a plain-text field — keep it plain (line breaks preserved).
         if (study.studyDescription) pushBot(study.studyDescription, true);
         const consented = localStorage.getItem(`esmira_consent_${study.id}`) === '1';
-        // Backfill enrollment for participants who consented before join-at-consent existed:
-        // stamp a join time now (their original consent moment is unrecoverable) and record
-        // the event server-side, so "Joined at" and the schedule anchor resolve without
-        // waiting for a first submission. New participants are handled in onConsent instead.
-        const backfillJoinKey = `esmira_joined_${study.id}_${uid}`;
-        if (consented && uid && !localStorage.getItem(backfillJoinKey)) {
-          const joinedAt = Date.now();
-          localStorage.setItem(backfillJoinKey, String(joinedAt));
-          ensureEnrollment(study.id, uid, joinedAt);
-          void submitJoined({ study, serverVersion, accessKey, userId: uid, joinedAt });
+        // Resolve enrollment for an already-consented participant before entering the study
+        // (new participants are handled at consent in onConsent). Adopt the SERVER's anchor
+        // (join time, else subscribe time) when it already has one, so a returning device's
+        // schedule is NOT shifted by a client-side stamp; only mint + record a fresh join
+        // when neither the client nor the server has an anchor. Awaited so every downstream
+        // ensureEnrollment (enterList, the backstop effect) reads the resolved value.
+        const joinKey = `esmira_joined_${study.id}_${uid}`;
+        if (consented && uid && !localStorage.getItem(joinKey)) {
+          const subscribed = localStorage.getItem(`esmira_push_subscribed_${study.id}`) === '1';
+          const serverAnchor = subscribed && study.webPushEnabled
+            ? (await fetchNextNotification(study.id, uid)).joinedAt
+            : null;
+          if (serverAnchor != null) {
+            localStorage.setItem(joinKey, String(serverAnchor));
+            ensureEnrollment(study.id, uid, serverAnchor);
+          } else {
+            const joinedAt = Date.now();
+            localStorage.setItem(joinKey, String(joinedAt));
+            ensureEnrollment(study.id, uid, joinedAt);
+            void submitJoined({ study, serverVersion, accessKey, userId: uid, joinedAt });
+          }
         }
         if (study.informedConsentForm && !consented) {
           pushBot(study.informedConsentForm);
@@ -886,7 +897,7 @@ export default function App() {
   useEffect(() => {
     if (!aboutOpen || !study?.webPushEnabled || !userId) { setNextNotification(null); return; }
     let cancelled = false;
-    void fetchNextNotification(study.id, userId).then((t) => { if (!cancelled) setNextNotification(t); });
+    void fetchNextNotification(study.id, userId).then((r) => { if (!cancelled) setNextNotification(r.next); });
     return () => { cancelled = true; };
   }, [aboutOpen, study, userId]);
 

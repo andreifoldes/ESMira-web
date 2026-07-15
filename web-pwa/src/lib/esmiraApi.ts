@@ -165,22 +165,30 @@ export async function reportPushEvent(args: {
   }
 }
 
+export interface PushStatus {
+  /** Next scheduled reminder time (UTC ms), or null if none upcoming / push off. */
+  next: number | null;
+  /** The schedule anchor the server used (join time, else subscribe time), or null. */
+  joinedAt: number | null;
+}
+
 /**
- * Ask the server for this participant's next scheduled reminder time (UTC ms),
- * computed from the study schedule. Returns null if none is upcoming or push is
- * off. Best-effort: never throws (purely informational for the Details panel).
+ * Ask the server for this participant's next scheduled reminder and the schedule
+ * anchor it used. The client adopts `joinedAt` so an already-enrolled participant's
+ * timeline isn't shifted by a client-side backfill. Best-effort: never throws.
  */
-export async function fetchNextNotification(studyId: number, userId: string): Promise<number | null> {
+export async function fetchNextNotification(studyId: number, userId: string): Promise<PushStatus> {
   try {
     const resp = await fetch(
       `${API_ROOT}api/push_status.php?studyId=${studyId}&userId=${encodeURIComponent(userId)}`,
       { headers: { Accept: 'application/json' } },
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) return { next: null, joinedAt: null };
     const env = await resp.json();
-    return env?.success ? (env.dataset?.nextNotification ?? null) : null;
+    if (!env?.success) return { next: null, joinedAt: null };
+    return { next: env.dataset?.nextNotification ?? null, joinedAt: env.dataset?.joinedAt ?? null };
   } catch {
-    return null;
+    return { next: null, joinedAt: null };
   }
 }
 
