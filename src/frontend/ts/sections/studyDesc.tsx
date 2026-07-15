@@ -6,16 +6,7 @@ import {BindObservable} from "../components/BindObservable";
 import {RichText} from "../components/RichText";
 import {RegexTextInput} from "../components/RegexTextInput";
 import {SectionData} from "../site/SectionData";
-// @ts-ignore — trianglify has no bundled type declarations
-import trianglify from "trianglify";
-
-// Design-system palette from DESIGN.md (heritage greens + tonal neutrals)
-const TRIANGLIFY_PALETTES: Record<string, string[]> = {
-	"Emerald (default)": ["#f7f9fc", "#eceef1", "#a5ede0", "#006129", "#00471c"],
-	"Teal Mist":         ["#f7f9fc", "#a5ede0", "#3f9e90", "#226e63", "#0d3d35"],
-	"Forest Night":      ["#191c1e", "#0d3d35", "#00471c", "#006129", "#a5ede0"],
-	"Stone & Sage":      ["#eceef1", "#c8d0cc", "#7aab8a", "#3f6e52", "#1a3628"],
-}
+import {TRIANGLIFY_PALETTES, generateProceduralCover} from "../helpers/ProceduralCover";
 
 export class Content extends SectionContent {
 	public static preLoad(sectionData: SectionData): Promise<any>[] {
@@ -29,21 +20,8 @@ export class Content extends SectionContent {
 
 	private generateTrianglifyArtwork(): void {
 		const palette = TRIANGLIFY_PALETTES[this.selectedPalette] ?? TRIANGLIFY_PALETTES["Emerald (default)"]
-		const pattern = trianglify({
-			width: 800,
-			height: 200,
-			cellSize: 70,
-			variance: 0.8,
-			xColors: palette,
-			yColors: "match",
-			seed: Math.random().toString(36).slice(2),
-		})
-		// toSVGTree returns a lightweight virtual-DOM node; serialise to string via browser APIs
-		const svgNode: SVGElement = pattern.toSVG(document.createElementNS("http://www.w3.org/2000/svg", "svg"))
-		svgNode.setAttribute("xmlns", "http://www.w3.org/2000/svg")
-		const svgString = new XMLSerializer().serializeToString(svgNode)
-		const b64 = btoa(unescape(encodeURIComponent(svgString)))
-		this.getStudyOrThrow().studyArtwork.set(`data:image/svg+xml;base64,${b64}`)
+		// Random seed so each click yields a fresh variation the admin can shuffle through
+		this.getStudyOrThrow().studyArtwork.set(generateProceduralCover({ palette }))
 		m.redraw()
 	}
 
