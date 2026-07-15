@@ -2199,7 +2199,7 @@ function ProtocolRow({ entry }: { entry: UploadProtocolEntry }) {
         </div>
       </div>
       <span className={cn('text-xs font-semibold shrink-0 mt-1',
-        sent ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}>
+        sent ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400')}>
         {sent ? 'Sent' : 'Pending'}
       </span>
     </li>
