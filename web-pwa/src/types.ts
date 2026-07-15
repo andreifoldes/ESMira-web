@@ -164,6 +164,8 @@ export interface EsmiraQuestionnaire {
   durationEnd?: number;
   /** Completion constraints. */
   completableOnce?: boolean;
+  /** At most one completion per local calendar day (any signal count / passive). */
+  completableOncePerDay?: boolean;
   completableOncePerNotification?: boolean;
   completableMinutesAfterNotification?: number;
   completableAtSpecificTime?: boolean;

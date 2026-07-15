@@ -122,6 +122,21 @@ function nextOpening(q: EsmiraQuestionnaire, joined: number, now: number): numbe
   return undefined;
 }
 
+/** Earliest opening on a day strictly after today, within the active period — used for
+ *  once-per-day reopen messaging (never returns a later-today window). */
+function nextOpeningAfterToday(q: EsmiraQuestionnaire, joined: number, now: number): number | undefined {
+  const periodDays = q.durationPeriodDays ?? 0;
+  for (let i = 1; i <= 14; i++) {
+    const dayMs = midnight(now) + i * DAY;
+    const dayIndex = datesDiff(dayMs, joined);
+    if (periodDays > 0 && dayIndex > periodDays) break;
+    const ws = windowsForDay(q, joined, dayMs);
+    if (ws === null) return midnight(dayMs);            // passive — reopens at midnight
+    if (ws.length) return midnight(dayMs) + ws[0].start; // first signal window that day
+  }
+  return undefined;
+}
+
 // ── main entry ────────────────────────────────────────────────────────────────
 
 export function computeAvailability(q: EsmiraQuestionnaire, joined: number, now: number, completions: Completions): Availability {
@@ -144,6 +159,14 @@ export function computeAvailability(q: EsmiraQuestionnaire, joined: number, now:
 
   // Completion limits.
   if (q.completableOnce && rec && rec.count > 0) return { state: 'completed', reason: 'Completed' };
+  // Once per local calendar day: a single completion locks the questionnaire until its
+  // next scheduled day, no matter how many signals fire today (and for passive
+  // questionnaires with no signals at all). Takes precedence over the intra-day windows.
+  if (q.completableOncePerDay && rec?.lastAt && isToday(rec.lastAt, now)) {
+    const next = nextOpeningAfterToday(q, joined, now);
+    return next ? { state: 'locked', opensAt: next, reason: opensReason(next, now) }
+                : { state: 'completed', reason: 'Completed' };
+  }
   if (q.limitCompletionFrequency && rec && rec.lastAt) {
     const gap = (q.completionFrequencyMinutes ?? 60) * 60000;
     if (now - rec.lastAt < gap) {

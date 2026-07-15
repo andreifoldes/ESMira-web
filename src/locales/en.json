@@ -352,6 +352,7 @@
 	"info_event_triggered_end_only": "Event-triggered questionnaires open when the event fires, so only an end time can be set.",
 	"notification_include_deadline": "Show completion deadline in reminder notification",
 	"questionnaires_can_only_be_completed_once": "Questionnaire can only be filled out once",
+	"questionnaires_can_only_be_completed_once_per_day": "Questionnaire can only be filled out once per day",
 	"questionnaires_can_only_be_completed_per_notification": "Questionnaire can only be filled out once per notification",
 	"quit_study": "Quit study",
 	"random": "Random",

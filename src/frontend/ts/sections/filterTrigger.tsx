@@ -315,6 +315,12 @@ export class Content extends SectionContent {
 				disable: () => questionnaire.completableOnce.set(false)
 			},
 			{
+				title: Lang.get("questionnaires_can_only_be_completed_once_per_day"),
+				isActive: () => questionnaire.completableOncePerDay.get(),
+				enable: () => questionnaire.completableOncePerDay.set(true),
+				disable: () => questionnaire.completableOncePerDay.set(false)
+			},
+			{
 				title: questionnaire.completableMinutesAfterNotification.get() != 0
 					? `${Lang.get("questionnaires_can_only_be_completed_per_notification")} (${questionnaire.completableMinutesAfterNotification.get()} ${Lang.get("minutes")})`
 					: Lang.get("questionnaires_can_only_be_completed_per_notification"),
