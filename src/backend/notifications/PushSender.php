@@ -31,8 +31,13 @@ class PushSender {
 	public static function run(): array {
 		$publicKey  = Configs::get('vapid_public_key');
 		$privateKey = Configs::get('vapid_private_key');
-		if(empty($publicKey) || empty($privateKey))
+		if(empty($publicKey) || empty($privateKey)) {
+			// Still stamp the heartbeat: the cron IS alive, it just can't send without VAPID.
+			// The admin panel already surfaces "no VAPID key" separately, so this lets it
+			// distinguish that from "the sender has stopped running".
+			self::writeHeartbeat(0, 0);
 			return ['error' => 'VAPID keys not configured (run cli/generate_vapid.php)'];
+		}
 
 		$subject = Configs::get('vapid_subject');
 		if(empty($subject))
@@ -146,7 +151,31 @@ class PushSender {
 				self::removeSubscriptionByEndpoint($endpoint);
 		}
 
+		self::writeHeartbeat($studiesProcessed, $queued);
 		return ['studies' => $studiesProcessed, 'queued' => $queued];
+	}
+
+	/**
+	 * Rewrite the global sender heartbeat. Delivery/funnel stats show what was sent, but
+	 * can't reveal a silently-dead cron (they simply stop growing). This heartbeat lets the
+	 * admin panel show liveness — "sender last ran Ns ago" vs. "hasn't run in X min".
+	 * Best-effort — never breaks a send.
+	 */
+	private static function writeHeartbeat(int $studies, int $queued): void {
+		try {
+			FileSystemBasics::writeFile(PathsFS::filePushHeartbeat(), json_encode([
+				'lastRunMs' => Main::getMilliseconds(),
+				'studies'   => $studies,
+				'queued'    => $queued,
+			]));
+		}
+		catch(Throwable $e) { /* non-fatal */ }
+	}
+
+	/** The sender heartbeat ({lastRunMs, studies, queued}), or null if it has never run. */
+	public static function readHeartbeat(): ?array {
+		$data = json_decode(@file_get_contents(PathsFS::filePushHeartbeat()), true);
+		return (is_array($data) && isset($data['lastRunMs'])) ? $data : null;
 	}
 
 	/** Number of registered push subscriptions for a study (for the admin panel). */
