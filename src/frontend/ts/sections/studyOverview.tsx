@@ -176,7 +176,7 @@ export class Content extends SectionContent {
 			}
 			<div style={bodyStyle}>
 				{!study.studyArtwork.get() &&
-					<div style="width:80px;height:80px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;">
+					<div style={`width:80px;height:80px;margin:0 auto 20px;border-radius:50%;background:${C.primary};display:flex;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;`}>
 						{m.trust(iemabotLogoSvg)}
 					</div>
 				}
