@@ -1234,6 +1234,7 @@ export default function App() {
         const rec = loadCompletions(study.id, userId)[q.internalId];
         if (rec) void mirrorCompletion(study.id, userId, q.internalId, rec.lastAt, rec.count, rec.occ);
       }
+      setNowTick((t) => t + 1);
     }
     setSubmitting(false);
     pushBot(ok
