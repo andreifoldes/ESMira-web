@@ -1225,8 +1225,8 @@ export default function App() {
     const completedKey = `esmira_completed_${study.id}_${userId}`;
     localStorage.setItem(completedKey, String(Number(localStorage.getItem(completedKey) || '0') + 1));
     // Record against the schedule so completion limits (once / frequency / per-signal) apply.
+    const anchor = enrolledAt ?? ensureEnrollment(study.id, userId, submittedAt);
     if (active) {
-      const anchor = enrolledAt ?? ensureEnrollment(study.id, userId, submittedAt);
       const q = study.questionnaires.find((x) => x.internalId === active.id);
       if (q) {
         recordCompletion(study.id, userId, q, anchor, submittedAt);
@@ -1242,8 +1242,14 @@ export default function App() {
       : '📥 You appear to be offline. Your responses are saved and will be sent automatically when you reconnect.');
     engineRef.current = null;
     activeQRef.current = null;
-    const visibleCount = study.questionnaires.filter((q) => q.title !== TRIALS_QN_TITLE).length;
-    if (visibleCount > 1) {
+    // Only offer another questionnaire if one is actually completable right now —
+    // otherwise the prompt dead-ends into a locked card (e.g. "Opens tomorrow 08:00"),
+    // which reads as a bug rather than as there simply being nothing left to do today.
+    const completions = loadCompletions(study.id, userId);
+    const now = Date.now();
+    const anotherAvailable = study.questionnaires.some((q) =>
+      q.title !== TRIALS_QN_TITLE && computeAvailability(q, anchor, now, completions).state === 'available');
+    if (anotherAvailable) {
       pushBot('Would you like to complete another questionnaire?');
     }
     setPhase('list');
