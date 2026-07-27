@@ -4,9 +4,22 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import './index.css';
 
-// Register the service worker (autoUpdate: a new build silently activates on the
-// next load). This is what makes the app installable + offline-capable.
+// Register the service worker (autoUpdate: a new build activates in the background —
+// see skipWaiting/clientsClaim in sw.ts). Without the controllerchange listener below,
+// an already-open session keeps running the OLD JS in memory until the participant
+// fully closes and reopens the app, silently missing bug fixes (and schedule/gating
+// changes) that have already been deployed. Reloading on controllerchange means an
+// update applies on the participant's very next in-app navigation instead.
 registerSW({ immediate: true });
+
+if ('serviceWorker' in navigator) {
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+}
 
 const root = createRoot(document.getElementById('root')!);
 
