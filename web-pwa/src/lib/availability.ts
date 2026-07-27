@@ -182,7 +182,7 @@ export function computeAvailability(q: EsmiraQuestionnaire, joined: number, now:
   const tod = now - midnight(now);
   for (const w of windows) {
     if (tod >= w.start && tod <= w.end) {
-      if (q.completableOncePerNotification && rec?.occ?.[w.key]) continue; // this occurrence already done
+      if (rec?.occ?.[w.key]) continue; // this occurrence already done
       return { state: 'available', reason: 'Available now' };
     }
   }
@@ -261,7 +261,7 @@ export function recordCompletion(studyId: number, userId: string, q: EsmiraQuest
       // window that isn't already completed. Without the occ check, two same-day
       // windows running to end-of-day overlap and the earlier (done) one absorbs
       // the mark, leaving the later one perpetually re-completable.
-      const open = windows.find((w) => tod >= w.start && tod <= w.end && !(q.completableOncePerNotification && rec.occ[w.key]));
+      const open = windows.find((w) => tod >= w.start && tod <= w.end && !rec.occ[w.key]);
       if (open) rec.occ[open.key] = now;
     }
     completions[q.internalId] = rec;

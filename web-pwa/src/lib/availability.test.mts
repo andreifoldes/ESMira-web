@@ -88,7 +88,7 @@ test('per-notification with two end-of-day windows: each occurrence completable 
   assert.notEqual(computeAvailability(q, JOINED, at(D1, 17), cs()).state, 'available', 'both occurrences done for the day');
 });
 
-test('no completion flag: behaviour unchanged — stays available after completion', () => {
+test('no completion flag: signal window still locks after completion (regression: used to stay available all day)', () => {
   const { sid, userId, cs } = ctx();
   const q = {
     internalId: 4, durationStartingAfterDays: 1, durationPeriodDays: 3,
@@ -97,5 +97,7 @@ test('no completion flag: behaviour unchanged — stays available after completi
 
   assert.equal(computeAvailability(q, JOINED, at(D1, 13), cs()).state, 'available');
   recordCompletion(sid, userId, q, JOINED, at(D1, 13));
-  assert.equal(computeAvailability(q, JOINED, at(D1, 14), cs()).state, 'available', 'no flag ⇒ still re-completable (unchanged)');
+  const after = computeAvailability(q, JOINED, at(D1, 14), cs());
+  assert.equal(after.state, 'locked', 'no flag needed ⇒ the opened occurrence is still marked done');
+  assert.equal(after.opensAt, D1 + DAY + 12 * H, 'reopens at tomorrow’s 12:00 signal, not immediately re-completable');
 });
