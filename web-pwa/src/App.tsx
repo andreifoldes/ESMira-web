@@ -1708,15 +1708,17 @@ export default function App() {
         {/* Questionnaire list */}
         {phase === 'list' && study && (() => {
           // Show what the participant can act on now: the currently-available
-          // questionnaires, or — when nothing is open yet — only the single next one to
-          // unlock (not the whole locked list).
+          // questionnaires, or — when nothing is open yet — every questionnaire that
+          // still has a future opening, so e.g. a Morning survey whose window already
+          // closed today doesn't silently disappear just because another questionnaire
+          // (like a midday check-in) happens to open sooner.
           const withAv = study.questionnaires
             .filter((q) => q.title !== TRIALS_QN_TITLE)
             .map((q) => ({ q, av: questionnaireAvailability.get(q.internalId) }));
           const available = withAv.filter((x) => !x.av || x.av.state === 'available');
           const items = available.length
             ? available
-            : withAv.filter((x) => x.av?.opensAt).sort((a, b) => a.av!.opensAt! - b.av!.opensAt!).slice(0, 1);
+            : withAv.filter((x) => x.av?.opensAt).sort((a, b) => a.av!.opensAt! - b.av!.opensAt!);
           return (
           <div className="self-start w-[85%] flex flex-col gap-2">
             {items.map(({ q, av }) => {
