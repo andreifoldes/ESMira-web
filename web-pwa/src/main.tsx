@@ -13,9 +13,18 @@ import './index.css';
 registerSW({ immediate: true });
 
 if ('serviceWorker' in navigator) {
+  // Reload ONLY when a new build replaces an existing controller (a real update).
+  // On a first visit the page starts uncontrolled and sw.ts's clientsClaim() fires
+  // a controllerchange ~0.4s in as the freshly-installed SW claims the page — that
+  // is NOT an update, and reloading there is a spurious first-visit reload that
+  // interrupts PWA installation: it discards the `beforeinstallprompt` event
+  // InstallPrompt.tsx just captured (so the install button never appears) and
+  // resets Chrome's install engagement. Guard on whether a controller already
+  // existed at load so the first-install claim is ignored.
+  const hadController = !!navigator.serviceWorker.controller;
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
+    if (reloading || !hadController) return;
     reloading = true;
     window.location.reload();
   });
