@@ -368,13 +368,15 @@ function NumberInput({ question, onRespond }: { question: PreloadedQuestion; onR
 // inconsistently across browsers (notably Firefox) and on mobile, so we use
 // two selects — the most universally supported control — which work
 // identically everywhere. Value is emitted as "HH:MM" (24h), matching
-// ESMira's QuestionnaireSaver time/duration format.
+// ESMira's QuestionnaireSaver time/duration format. The minute wheel steps by
+// `minute_step` (default 1); the adapter sets 5 for clock-time questions.
 const TIME_HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-const TIME_MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
 function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
   const [hh, setHh] = useState('');
   const [mm, setMm] = useState('');
+  const step = question.minute_step ?? 1;
+  const minutes = Array.from({ length: Math.floor(60 / step) }, (_, i) => String(i * step).padStart(2, '0'));
   const selectCls =
     'flex-1 min-w-0 bg-surface-container-low rounded-xl px-3 py-3 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50';
   return (
@@ -387,7 +389,7 @@ function TimeInput({ question, onRespond }: { question: PreloadedQuestion; onRes
         <span className="font-bold text-on-surface-variant">:</span>
         <select value={mm} onChange={(e) => setMm(e.target.value)} className={selectCls} aria-label="Minute">
           <option value="" disabled>MM</option>
-          {TIME_MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
+          {minutes.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
     </ConfirmRow>

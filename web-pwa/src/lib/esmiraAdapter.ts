@@ -173,7 +173,7 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       if (isDuration) {
         return { ...base, type: 'duration', max_hours: 16, minute_step: 5 };
       }
-      return { ...base, type: 'time' };
+      return { ...base, type: 'time', minute_step: 5 };
     }
     case 'duration':
       return { ...base, type: 'duration', max_hours: 24, minute_step: 5 };
