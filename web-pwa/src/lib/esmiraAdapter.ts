@@ -25,6 +25,13 @@ import type {
   PreloadedSession,
 } from '../types';
 
+/**
+ * Prompt shown in the free-text modal when a participant picks the "other"
+ * option of a list_single that has ESMira's `other` flag enabled. Generic
+ * because the chosen option's label (e.g. "Something else") is shown alongside.
+ */
+const OTHER_SPECIFY_PROMPT = 'Please describe your answer.';
+
 /** responseTypes that contribute a value AND render in this web UI. */
 const RENDERABLE = new Set([
   'likert', 'list_single', 'list_multiple', 'binary',
@@ -129,8 +136,18 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
         scale_min_label: input.leftSideLabel ?? '',
         scale_max_label: input.rightSideLabel ?? '',
       };
-    case 'list_single':
-      return { ...base, type: 'choice', options: input.listChoices ?? [] };
+    case 'list_single': {
+      const choices = input.listChoices ?? [];
+      // ESMira's `other` flag turns the final choice into an "other, please
+      // specify" option: picking it opens a free-text modal whose text is stored
+      // in the `name~other` CSV column (StudyDataValues.php), matching the native
+      // apps. The last choice is the catch-all by convention — researchers add an
+      // explicit label like "Something else" / "Other" as the last item.
+      const otherSpecify = input.other && choices.length > 0
+        ? { options: [choices[choices.length - 1]], prompt: OTHER_SPECIFY_PROMPT }
+        : null;
+      return { ...base, type: 'choice', options: choices, other_specify: otherSpecify };
+    }
     case 'list_multiple':
       return { ...base, type: 'multi_choice', options: input.listChoices ?? [] };
     case 'binary':

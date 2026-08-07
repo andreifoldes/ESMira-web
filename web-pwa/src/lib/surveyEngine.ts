@@ -78,6 +78,13 @@ export class OfflineSurveyEngine {
   readonly session: PreloadedSession;
   private state: EngineState;
   private pendingSpecify: PendingSpecify | null = null;
+  /**
+   * Free-text elaborations for "other"-style choices, keyed by question id.
+   * Kept separate from `state.responses` (which holds the chosen option) so the
+   * pair submits as ESMira's native `name` + `name~other` CSV columns rather
+   * than a single blended value. See `buildEsmiraResponses`.
+   */
+  private specifyTexts: Record<string, string> = {};
 
   constructor(session: PreloadedSession) {
     this.session = session;
@@ -178,24 +185,38 @@ export class OfflineSurveyEngine {
     return this.pendingSpecify;
   }
 
+  /** Free-text "other" elaborations keyed by question id (submitted as `id~other`). */
+  getSpecifyTexts(): Readonly<Record<string, string>> {
+    return this.specifyTexts;
+  }
+
+  /**
+   * Confirm the "other" choice with its free-text detail. The chosen option is
+   * already recorded in `state.responses`; the text is stored separately (empty
+   * text clears any prior detail) and the survey advances.
+   */
   submitSpecify(text: string): PreloadedQuestion | null {
     if (!this.pendingSpecify) return this.getCurrentQuestion();
-    const combined = text.trim()
-      ? `${this.pendingSpecify.baseValue}: ${text.trim()}`
-      : this.pendingSpecify.baseValue;
-    this.state.responses[this.pendingSpecify.questionId] = combined;
+    const { questionId } = this.pendingSpecify;
+    const trimmed = text.trim();
+    if (trimmed) this.specifyTexts[questionId] = trimmed;
+    else delete this.specifyTexts[questionId];
     this.pendingSpecify = null;
     this.pruneHiddenResponses();
     this.state.currentIndex++;
     return this.getCurrentQuestion();
   }
 
+  /**
+   * Back out of the specify prompt: drop the tentative choice (and any earlier
+   * detail) and stay on the question so the participant can pick again.
+   */
   cancelSpecify(): PreloadedQuestion | null {
     if (!this.pendingSpecify) return this.getCurrentQuestion();
-    this.state.responses[this.pendingSpecify.questionId] = this.pendingSpecify.baseValue;
+    const { questionId } = this.pendingSpecify;
+    delete this.state.responses[questionId];
+    delete this.specifyTexts[questionId];
     this.pendingSpecify = null;
-    this.pruneHiddenResponses();
-    this.state.currentIndex++;
     return this.getCurrentQuestion();
   }
 
@@ -230,8 +251,11 @@ export class OfflineSurveyEngine {
     if (idx < 0) return null;
     // Clear this and any later responses so re-answering from here is clean
     // ("any"-mode back-navigation; for the last item this is just the one response).
-    for (let i = idx; i < this.session.questions.length; i++)
-      delete this.state.responses[this.session.questions[i].id];
+    for (let i = idx; i < this.session.questions.length; i++) {
+      const qid = this.session.questions[i].id;
+      delete this.state.responses[qid];
+      delete this.specifyTexts[qid];
+    }
     this.state.currentIndex = idx;
     this.state.complete = false;
     return this.getCurrentQuestion();

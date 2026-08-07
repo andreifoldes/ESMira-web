@@ -308,11 +308,13 @@ export async function disconnectWearable(args: {
 /**
  * Build the ESMira `responses` object from the engine's response map.
  * Mirrors QuestionnaireSaver value formats; expands multi_choice to `name~i`
- * booleans and drops display-only `info` items.
+ * booleans, adds the `name~other` free-text column for "other"-specify choices,
+ * and drops display-only `info` items.
  */
 export function buildEsmiraResponses(
   questions: PreloadedQuestion[],
   responseMap: Readonly<Record<string, string>>,
+  specifyTexts: Readonly<Record<string, string>> = {},
 ): Record<string, string | boolean | number> {
   const out: Record<string, string | boolean | number> = {};
   for (const q of questions) {
@@ -325,6 +327,11 @@ export function buildEsmiraResponses(
       });
     } else {
       out[q.id] = v;
+    }
+    // "other, please specify" free text → its own `name~other` column, matching
+    // StudyDataValues.php / the native apps (the chosen option stays in `name`).
+    if (q.other_specify) {
+      out[`${q.id}~other`] = specifyTexts[q.id] ?? '';
     }
   }
   return out;

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
+import type { PendingSpecify } from './lib/surveyEngine';
 import { adaptQuestionnaire } from './lib/esmiraAdapter';
 import {
   buildEsmiraResponses, fetchStudy, installSubmitQueueFlusher, submitQuestionnaire,
@@ -329,6 +330,9 @@ export default function App() {
   // captured in the active questionnaire (released for upload after submission).
   const [recorder, setRecorder] = useState<PreloadedQuestion | null>(null);
   const audioIdsRef = useRef<number[]>([]);
+  // "Other, please specify" free-text modal: set when the participant picks the
+  // catch-all option of a list_single that has ESMira's `other` flag enabled.
+  const [specify, setSpecify] = useState<PendingSpecify | null>(null);
 
   const scrollRef = useRef<HTMLElement | null>(null);
   // Always-fresh userId for callbacks that would otherwise capture a stale closure.
@@ -700,6 +704,7 @@ export default function App() {
   const aboutDialogRef = useDialogA11y<HTMLDivElement>(aboutOpen, () => setAboutOpen(false));
   const contactDialogRef = useDialogA11y<HTMLDivElement>(contactOpen, () => setContactOpen(false));
   const gridMenuRef = useDialogA11y<HTMLDivElement>(gridMenuOpen, () => setGridMenuOpen(false));
+  const specifyDialogRef = useDialogA11y<HTMLDivElement>(!!specify, () => handleCancelSpecify());
 
   // ── Update studies: re-download the study config and flush the queue ──
   const updateStudies = async () => {
@@ -1087,6 +1092,14 @@ export default function App() {
   const handleRespond = (questionId: string, value: string) => {
     const engine = engineRef.current;
     if (!engine) return;
+    const next = engine.respond(questionId, value);
+    // An "other, please specify" choice opens a free-text prompt: keep the
+    // question live and defer settling the answer until the detail is confirmed.
+    const pending = engine.getPendingSpecify();
+    if (pending) {
+      setSpecify(pending);
+      return;
+    }
     const q = engine.session.questions.find((x) => x.id === questionId);
     if (q) {
       // Settle the question into the thread as a bot bubble, then the answer.
@@ -1096,8 +1109,36 @@ export default function App() {
       pushBot(q.text, !!q.is_html, questionId);
       pushUser(formatAnswer(q, value), questionId);
     }
-    const next = engine.respond(questionId, value);
     afterAdvance(next);
+  };
+
+  // ── "Other, please specify" free-text prompt ─────────────────
+  // Confirm: settle the chosen option + its detail into the thread, then advance.
+  const handleSubmitSpecify = (text: string) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const pending = engine.getPendingSpecify();
+    const next = engine.submitSpecify(text);
+    setSpecify(null);
+    if (pending) {
+      const q = engine.session.questions.find((x) => x.id === pending.questionId);
+      const detail = text.trim();
+      if (q) {
+        pushBot(q.text, !!q.is_html, pending.questionId);
+        pushUser(detail ? `${pending.baseValue} — ${detail}` : pending.baseValue, pending.questionId);
+      }
+    }
+    afterAdvance(next);
+  };
+
+  // Back: discard the tentative choice and re-show the options (nothing settled).
+  const handleCancelSpecify = () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const reopened = engine.cancelSpecify();
+    setSpecify(null);
+    setCurrentQuestion(reopened);
+    setProgress(engine.getProgress());
   };
 
   // ── Save a completed voice memo ──────────────────────────────
@@ -1200,7 +1241,9 @@ export default function App() {
       return;
     }
     setSubmitting(true);
-    const responses = buildEsmiraResponses(engine.session.questions, engine.getResponseMap());
+    const responses = buildEsmiraResponses(
+      engine.session.questions, engine.getResponseMap(), engine.getSpecifyTexts(),
+    );
     const joinedKey = `esmira_joined_${study.id}_${userId}`;
     const newParticipant = !localStorage.getItem(joinedKey);
     const submittedAt = Date.now();
@@ -2173,6 +2216,21 @@ export default function App() {
         />
       )}
 
+      {/* "Other, please specify" free-text modal (list_single with `other`) */}
+      <AnimatePresence>
+        {specify && (
+          <SpecifyModal
+            key={specify.questionId}
+            pending={specify}
+            dialogRef={specifyDialogRef}
+            reduceMotion={reduceMotion}
+            textSizeClass={textSizeClass}
+            onSubmit={handleSubmitSpecify}
+            onBack={handleCancelSpecify}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Full-screen webview overlay (cognitive tasks / external assessments) */}
       <AnimatePresence>
         {webview && (
@@ -2203,6 +2261,71 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * Free-text follow-up for an "other, please specify" choice. The chosen option
+ * (e.g. "Something else") heads the dialog; the entered text is stored in the
+ * question's `name~other` column. "Done" requires non-empty text; "Back" returns
+ * to the options so the participant can pick a different one instead.
+ */
+function SpecifyModal({
+  pending, dialogRef, reduceMotion, textSizeClass, onSubmit, onBack,
+}: {
+  pending: PendingSpecify;
+  dialogRef: React.RefObject<HTMLDivElement | null>;
+  reduceMotion: boolean;
+  textSizeClass: string;
+  onSubmit: (text: string) => void;
+  onBack: () => void;
+}) {
+  const [text, setText] = useState('');
+  const trimmed = text.trim();
+  const submit = () => { if (trimmed) onSubmit(text); };
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.2 }}
+      className="fixed inset-0 z-[105] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+    >
+      <motion.div
+        ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="specify-dialog-title"
+        initial={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={reduceMotion ? { scale: 1 } : { scale: 0.95, y: 20 }}
+        className="w-full max-w-md bg-white dark:bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden flex flex-col text-on-surface"
+      >
+        <div className="p-5 flex flex-col gap-4">
+          <div>
+            <h2 id="specify-dialog-title" className={cn('font-bold leading-snug', textSizeClass)}>{pending.baseValue}</h2>
+            <p className="text-sm text-on-surface-variant mt-1">{pending.prompt}</p>
+          </div>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+            aria-label={pending.prompt}
+            placeholder="Type your answer…"
+            className={cn('w-full rounded-xl bg-surface-container-high px-4 py-3 text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-2 focus:ring-primary/50', textSizeClass)}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={onBack}
+              className="flex-1 py-3 rounded-full bg-surface-container-high text-on-surface font-semibold text-sm active:scale-95 transition-all hover:bg-surface-container-highest"
+            >
+              Back
+            </button>
+            <button
+              onClick={submit}
+              disabled={!trimmed}
+              className="flex-1 py-3 rounded-full bg-primary text-on-primary font-bold text-sm active:scale-95 hover:brightness-110 transition-all disabled:opacity-40 disabled:active:scale-100"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
