@@ -159,7 +159,7 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       return { ...base, type: 'time' };
     }
     case 'duration':
-      return { ...base, type: 'duration', max_hours: 24, minute_step: 1 };
+      return { ...base, type: 'duration', max_hours: 24, minute_step: 5 };
     case 'date':
       return { ...base, type: 'date' };
     case 'record_audio':
