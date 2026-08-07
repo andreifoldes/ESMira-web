@@ -43,6 +43,18 @@ esac
 IMAGE="esmira-fork:latest"
 CONTAINER_SVC="esmira"
 
+# ── Heal iCloud-induced git corruption BEFORE the guard/build/push ────────────
+# This repo lives under iCloud, which writes " 2"/" 3" conflict-copies into .git
+# (breaking fetch/fsck) and the worktree (dirtying the guard). git-heal quarantines
+# them and re-fetches any missing objects; it exits non-zero if it can't make the
+# repo healthy, so we abort rather than ship a broken repo. Skip with HEAL_SKIP=1.
+if [ "${HEAL_SKIP:-0}" = "1" ]; then
+  echo "=== git-heal SKIPPED (HEAL_SKIP=1) ==="
+else
+  "$(cd "$(dirname "$0")" && pwd)/git-heal.sh" \
+    || { echo "ABORT: git-heal could not make the repository healthy (see above)." >&2; exit 1; }
+fi
+
 # ── Deploy guard: refuse to ship if live is ahead of us ──────────────────────
 if [ "${DEPLOY_SKIP_GUARD:-0}" = "1" ]; then
   echo "=== Deploy guard SKIPPED (DEPLOY_SKIP_GUARD=1) ==="
