@@ -26,6 +26,9 @@ export type QType =
 export interface PreloadedQuestion {
   id: string; // == ESMira input `name` (unique study-wide → response key)
   text: string; // question text — authored in the rich-text editor, so may contain HTML
+  // Optional explanatory helper text shown beneath `text`, de-emphasised (muted, regular
+  // weight). Rich HTML like `text`. Distinct from `description` below (cognitive cards).
+  subtext?: string;
   type: QType;
   required: boolean;
   options?: string[] | null;
@@ -107,6 +110,8 @@ export interface EsmiraInput {
   name: string;
   responseType: EsmiraResponseType;
   text?: string;
+  /** Optional explanatory text shown beneath the question (rich HTML, web/PWA only). */
+  description?: string;
   required?: boolean;
   likertSteps?: number;
   leftSideLabel?: string;

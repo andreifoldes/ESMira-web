@@ -57,6 +57,10 @@ export class Input extends DataStructure {
 
 	public defaultValue = this.translatable("defaultValue", "")
 	public text = this.translatable("text", "")
+	// Optional explanatory text shown beneath the main question, de-emphasised (smaller,
+	// regular weight, muted) so it reads as a helper rather than part of the question.
+	// Web/PWA client only — native apps ignore it. Empty for every item by default.
+	public description = this.translatable("description", "")
 	public url = this.translatable("url", "")
 	// "webapp" type: instructions shown on the launch card (the item `text` is the title,
 	// `url` is the launch URL). Empty for every other input type.

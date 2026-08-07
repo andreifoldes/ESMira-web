@@ -455,6 +455,7 @@
 	"summary": "Summary",
 	"sum": "Sum",
 	"text_shown_to_participant": "Shown text",
+	"input_description": "Explanation (shown under the question)",
 	"text_with_count": "%s (%d)",
 	"text_with_questionnaireCount": "%s (%d questionnaires)",
 	"textAlign_left": "textalign left",

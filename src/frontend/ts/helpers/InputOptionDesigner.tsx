@@ -594,6 +594,11 @@ export class InputOptionDesigner {
 								{RichText(this.input.text)}
 								{ObservableLangChooser(this.study)}
 							</div>
+							<div class="fakeLabel line">
+								<small>{Lang.get("input_description")}{NotCompatibleIcon("Android", "iOS")}</small>
+								{RichText(this.input.description)}
+								{ObservableLangChooser(this.study)}
+							</div>
 						</div>
 				}),
 			...views.map((view) => {

@@ -73,9 +73,16 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
   const rt = input.responseType;
   if (!RENDERABLE.has(rt)) return null;
 
+  // Explanatory helper text (rich HTML). Only carried through when it holds real
+  // content — TipTap serialises "empty" as `<p></p>`/`<div><br></div>`, which would
+  // otherwise render as a stray muted gap under the question.
+  const descHtml = input.description ?? '';
+  const hasDescText = descHtml.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().length > 0;
+
   const base = {
     id: input.name,
     text: input.text ?? '',
+    subtext: hasDescText ? descHtml : '',
     required: input.required ?? false,
     // Every ESMira `text` field is authored in the rich-text (TipTap) editor, so it
     // may contain HTML (<div>/<br>/<b>…) regardless of input type. Flag it globally

@@ -36,6 +36,19 @@ const ANCHOR_LABEL_SIZE: Record<string, string> = {
 const anchorLabelClass = (textSizeClass: string): string =>
   ANCHOR_LABEL_SIZE[textSizeClass] ?? 'text-[11px]';
 
+// Explanatory subtext under a question: one step smaller than the body text so it
+// reads as a helper, but larger than the tiny scale-anchor labels above — it's
+// readable prose (often a few sentences), not a single word. Keyed by App's
+// TEXT_SIZE_CLASS values; falls back to a sensible small if unknown.
+const SUBTEXT_SIZE: Record<string, string> = {
+  'text-[15px]': 'text-[13px]',
+  'text-lg': 'text-[15px]',
+  'text-xl': 'text-lg',
+  'text-2xl': 'text-xl',
+};
+const subtextClass = (textSizeClass: string): string =>
+  SUBTEXT_SIZE[textSizeClass] ?? 'text-[13px]';
+
 // Question text is rich-text HTML; strip tags so it's safe to use in aria-labels
 // (a screen reader would otherwise announce literal "<div>" markup).
 const plainText = (html: string): string =>
@@ -112,6 +125,15 @@ export function SurveyInputs({
             <p className={cn('font-semibold text-on-surface leading-snug mb-2 whitespace-pre-wrap', textSizeClass)}>
               {question.text}
             </p>
+          )}
+          {question.type !== 'info' && question.subtext && (
+            // Explanatory helper text: de-emphasised (muted, regular weight, relaxed
+            // leading) so the primary question above stays visually dominant. Rich HTML
+            // like the question text, authored in ESMira's editor.
+            <div
+              className={cn('text-on-surface-variant leading-relaxed esmira-rich mb-2', subtextClass(textSizeClass))}
+              dangerouslySetInnerHTML={{ __html: question.subtext }}
+            />
           )}
           {question.type !== 'info' && !question.required && (
             <p className="text-xs text-on-surface-variant italic mb-2">(Optional)</p>
