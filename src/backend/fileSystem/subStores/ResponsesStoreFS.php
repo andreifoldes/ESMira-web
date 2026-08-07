@@ -8,6 +8,7 @@ use backend\exceptions\CriticalException;
 use backend\DataSetCache;
 use backend\DataSetCacheContainer;
 use backend\Paths;
+use backend\FileSystemBasics;
 use backend\fileSystem\PathsFS;
 use backend\fileSystem\loader\StatisticsNewDataSetEntryLoader;
 use backend\FileUploader;
@@ -115,6 +116,11 @@ class ResponsesStoreFS implements ResponsesStore {
 		if (file_exists($targetPath))
 			throw new CriticalException('File already exists');
 
+		// Ensure the media subfolder exists. Images/audio are created at study creation,
+		// but the keystrokes folder was added later, so studies created before it won't
+		// have one yet; createFolder() is a no-op when the folder already exists.
+		FileSystemBasics::createFolder(dirname($targetPath));
+
 		if (!$fileUploader->upload($targetPath) || !unlink($waitingPath))
 			throw new CriticalException('Uploading failed');
 
@@ -152,9 +158,12 @@ class ResponsesStoreFS implements ResponsesStore {
 		$zip->open($pathZip, ZIPARCHIVE::CREATE);
 		$folderImages = Paths::folderImages($studyId);
 		$folderAudio = Paths::folderAudio($studyId);
+		$folderKeystrokes = Paths::folderKeystrokes($studyId);
 		$countImages = count(scandir($folderImages)) - 2;
 		$countAudio = count(scandir($folderAudio)) - 2;
-		$countTotal = $countImages + $countAudio;
+		// Added after some studies were created; the folder may not exist yet.
+		$countKeystrokes = is_dir($folderKeystrokes) ? count(scandir($folderKeystrokes)) - 2 : 0;
+		$countTotal = $countImages + $countAudio + $countKeystrokes;
 		$currentCount = 0;
 
 		$onProgressCallback = function () use ($countTotal, $flushProgress, &$currentCount): void {
@@ -178,7 +187,17 @@ class ResponsesStoreFS implements ResponsesStore {
 				return Paths::publicFileAudioFromMediaFilename($fileName);
 			}
 		);
-		
+		if(is_dir($folderKeystrokes)) {
+			$this->fillMediaFolder(
+				$zip,
+				$folderKeystrokes,
+				function ($fileName) use ($onProgressCallback) {
+					$onProgressCallback();
+					return Paths::publicFileKeystrokesFromMediaFilename($fileName);
+				}
+			);
+		}
+
 		$zip->close();
 	}
 	public function outputResponsesFile(int $studyId, string $identifier) {

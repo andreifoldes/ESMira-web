@@ -39,9 +39,12 @@ import { mirrorCompletion, backfillCompletions } from './lib/completionMirror';
 import type { EsmiraStudy, EsmiraQuestionnaire, PreloadedQuestion, WearableStatus } from './types';
 import { SurveyInputs } from './components/SurveyInputs';
 import { AudioRecorder } from './components/AudioRecorder';
+import { KeystrokeRecorder } from './components/KeystrokeRecorder';
 import { InstallPrompt } from './components/InstallPrompt';
 import { WearablesPanel } from './components/WearablesPanel';
 import { saveRecording } from './lib/audioUploads';
+import { saveKeystrokes } from './lib/keystrokeUploads';
+import type { CaptureMode } from './lib/keystrokeCapture';
 
 type Phase = 'loading' | 'error' | 'consent' | 'name' | 'notifications' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict';
 
@@ -330,6 +333,12 @@ export default function App() {
   // captured in the active questionnaire (released for upload after submission).
   const [recorder, setRecorder] = useState<PreloadedQuestion | null>(null);
   const audioIdsRef = useRef<number[]>([]);
+  // record_keystrokes: the question whose writing modal is open, plus per-questionnaire
+  // buffers for the log identifiers and the sibling columns (typed transcript, capture mode).
+  const [keystroker, setKeystroker] = useState<PreloadedQuestion | null>(null);
+  const keystrokeIdsRef = useRef<number[]>([]);
+  const keystrokeTextsRef = useRef<Record<string, string>>({});
+  const keystrokeModesRef = useRef<Record<string, string>>({});
   // "Other, please specify" free-text modal: set when the participant picks the
   // catch-all option of a list_single that has ESMira's `other` flag enabled.
   const [specify, setSpecify] = useState<PendingSpecify | null>(null);
@@ -1079,6 +1088,9 @@ export default function App() {
     setActiveQTitle(q.title);
     surveyStartRef.current = Date.now();
     audioIdsRef.current = [];
+    keystrokeIdsRef.current = [];
+    keystrokeTextsRef.current = {};
+    keystrokeModesRef.current = {};
     pushUser(q.title);
     if (practice) pushSection('Practice run — nothing you enter is saved');
     setPhase('survey');
@@ -1158,6 +1170,23 @@ export default function App() {
     handleRespond(q.id, String(identifier));
   };
 
+  // ── Save a keystroke-dynamics text answer ────────────────────
+  // Mirrors handleSaveRecording: the CSV log is persisted to IndexedDB and its identifier
+  // becomes this question's response value (uploaded to file_uploads.php after the dataset
+  // lands). The typed transcript and capture mode ride along in sibling columns.
+  const handleSaveKeystrokes = (identifier: number, blob: Blob, transcript: string, captureMode: CaptureMode) => {
+    const q = keystroker;
+    setKeystroker(null);
+    if (!q) return;
+    if (!practiceRef.current && study) {
+      void saveKeystrokes({ studyId: study.id, userId, identifier, blob });
+      keystrokeIdsRef.current.push(identifier);
+    }
+    keystrokeTextsRef.current[q.id] = transcript;
+    keystrokeModesRef.current[q.id] = captureMode;
+    handleRespond(q.id, String(identifier));
+  };
+
   // ── Change the most recent answer (rewind engine, re-ask it) ──
   const onChangeResponse = (qid: string) => {
     const engine = engineRef.current;
@@ -1193,6 +1222,17 @@ export default function App() {
     const engine = engineRef.current;
     if (!engine) return;
     // Settle the info/link-out content into the thread (keeps the link clickable).
+    if (currentQuestion) settleQuestionIntoThread(currentQuestion);
+    const next = engine.skip();
+    afterAdvance(next);
+  };
+
+  // Skip a voice memo. If it has a keystroke-text fallback, reveal that fallback so the
+  // participant is asked the same prompt to answer by typing; otherwise it's a plain skip.
+  const handleAudioSkip = () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (currentQuestion?.skip_fallback_id) engine.activateFallback(currentQuestion.skip_fallback_id);
     if (currentQuestion) settleQuestionIntoThread(currentQuestion);
     const next = engine.skip();
     afterAdvance(next);
@@ -1243,6 +1283,7 @@ export default function App() {
     setSubmitting(true);
     const responses = buildEsmiraResponses(
       engine.session.questions, engine.getResponseMap(), engine.getSpecifyTexts(),
+      keystrokeTextsRef.current, keystrokeModesRef.current,
     );
     const joinedKey = `esmira_joined_${study.id}_${userId}`;
     const newParticipant = !localStorage.getItem(joinedKey);
@@ -1259,6 +1300,7 @@ export default function App() {
       formDuration: Date.now() - surveyStartRef.current,
       pageDurations: '',
       audioIdentifiers: audioIdsRef.current,
+      keystrokeIdentifiers: keystrokeIdsRef.current,
     });
     // Join time is normally stamped at consent (see onConsent). This is a fallback for
     // participants who joined before that flow existed (no stored join time): record it on
@@ -1834,6 +1876,8 @@ export default function App() {
             onContinueInfo={handleContinueInfo}
             onOpenWebview={(url, title) => setWebview({ url, title, qid: currentQuestion?.id })}
             onOpenRecorder={() => setRecorder(currentQuestion)}
+            onSkipAudio={handleAudioSkip}
+            onOpenKeystroke={() => setKeystroker(currentQuestion)}
           />
         )}
 
@@ -2215,6 +2259,16 @@ export default function App() {
           reduceMotion={reduceMotion}
           onCancel={() => setRecorder(null)}
           onSave={handleSaveRecording}
+        />
+      )}
+
+      {/* Keystroke-logging writing overlay (record_keystrokes questions) */}
+      {keystroker && (
+        <KeystrokeRecorder
+          question={keystroker}
+          reduceMotion={reduceMotion}
+          onCancel={() => setKeystroker(null)}
+          onSave={handleSaveKeystrokes}
         />
       )}
 

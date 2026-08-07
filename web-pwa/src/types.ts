@@ -20,6 +20,7 @@ export type QType =
   | 'date'
   | 'va_scale'
   | 'audio'
+  | 'keystroke_text'
   | 'cognitive'
   | 'info';
 
@@ -59,6 +60,12 @@ export interface PreloadedQuestion {
   max_recording_seconds?: number;
   show_if?: ShowIf | null;
   other_specify?: { options: string[]; prompt: string } | null;
+  // Skip-fallback branch (audio → keystroke_text): set on an `audio` question, the id of the
+  // adjacent `keystroke_text` question to reveal when the memo is skipped.
+  skip_fallback_id?: string;
+  // Set on a `keystroke_text` question that is a skip fallback: hidden in normal flow, revealed
+  // only when its paired audio question is skipped (surveyEngine.activateFallback).
+  is_fallback?: boolean;
 }
 
 export interface PreloadedSection {
@@ -98,6 +105,7 @@ export type EsmiraResponseType =
   | 'number'
   | 'photo'
   | 'record_audio'
+  | 'record_keystrokes'
   | 'text'
   | 'text_input'
   | 'time'

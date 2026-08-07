@@ -11,6 +11,7 @@
 
 import type { EsmiraStudy, PreloadedQuestion, StudiesEnvelope, WearableStatus } from '../types';
 import { flushAudioQueue, markAudioReady } from './audioUploads';
+import { flushKeystrokeQueue, markKeystrokesReady } from './keystrokeUploads';
 
 /**
  * Root of the ESMira backend (the PHP app + api/). The PWA is served at /pwa/ but the
@@ -315,6 +316,8 @@ export function buildEsmiraResponses(
   questions: PreloadedQuestion[],
   responseMap: Readonly<Record<string, string>>,
   specifyTexts: Readonly<Record<string, string>> = {},
+  keystrokeTexts: Readonly<Record<string, string>> = {},
+  keystrokeModes: Readonly<Record<string, string>> = {},
 ): Record<string, string | boolean | number> {
   const out: Record<string, string | boolean | number> = {};
   for (const q of questions) {
@@ -332,6 +335,12 @@ export function buildEsmiraResponses(
     // StudyDataValues.php / the native apps (the chosen option stays in `name`).
     if (q.other_specify) {
       out[`${q.id}~other`] = specifyTexts[q.id] ?? '';
+    }
+    // record_keystrokes: `name` holds the keystroke-log file identifier (like audio);
+    // the typed answer and capture mode travel in the sibling columns (ResponsesIndex.php).
+    if (q.type === 'keystroke_text') {
+      out[`${q.id}~text`] = keystrokeTexts[q.id] ?? '';
+      out[`${q.id}~capture_mode`] = keystrokeModes[q.id] ?? '';
     }
   }
   return out;
@@ -353,6 +362,9 @@ export interface SubmitArgs {
    *  The bytes are already persisted in IndexedDB; they become uploadable only
    *  once this dataset has reached the server (see audioUploads.ts). */
   audioIdentifiers?: number[];
+  /** Upload identifiers of `record_keystrokes` logs — same deferred-upload contract
+   *  as audio, but the bytes are the content-free keystroke CSV (see keystrokeUploads.ts). */
+  keystrokeIdentifiers?: number[];
 }
 
 interface DatasetEntry {
@@ -516,6 +528,8 @@ interface QueuedSubmit {
   protocol?: { studyId: number; userId: string; ids: string[] };
   /** Voice-memo upload identifiers to release for upload once this dataset sends. */
   audio?: { studyId: number; userId: string; identifiers: number[] };
+  /** Keystroke-log upload identifiers to release for upload once this dataset sends. */
+  keystrokes?: { studyId: number; userId: string; identifiers: number[] };
 }
 
 function loadQueue(): QueuedSubmit[] {
@@ -554,14 +568,19 @@ async function postDataset(payload: DatasetPayload): Promise<void> {
 export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
   const payload = buildPayload(args);
   const audioIds = args.audioIdentifiers ?? [];
+  const keystrokeIds = args.keystrokeIdentifiers ?? [];
   try {
     await postDataset(payload);
     appendProtocol(args.study.id, args.userId, questionnaireProtocolEntries(args, 'sent'));
     // Dataset reached the server → its pending-upload markers exist; release the
-    // voice memos for upload and kick a flush (best-effort, non-blocking).
+    // voice memos / keystroke logs for upload and kick a flush (best-effort, non-blocking).
     if (audioIds.length) {
       await markAudioReady(args.study.id, args.userId, audioIds);
       void flushAudioQueue();
+    }
+    if (keystrokeIds.length) {
+      await markKeystrokesReady(args.study.id, args.userId, keystrokeIds);
+      void flushKeystrokeQueue();
     }
     return true;
   } catch {
@@ -573,6 +592,7 @@ export async function submitQuestionnaire(args: SubmitArgs): Promise<boolean> {
       attempts: 1,
       protocol: { studyId: args.study.id, userId: args.userId, ids: entries.map((e) => e.id) },
       ...(audioIds.length ? { audio: { studyId: args.study.id, userId: args.userId, identifiers: audioIds } } : {}),
+      ...(keystrokeIds.length ? { keystrokes: { studyId: args.study.id, userId: args.userId, identifiers: keystrokeIds } } : {}),
     });
     saveQueue(queue);
     return false;
@@ -737,16 +757,18 @@ export async function flushSubmitQueue(): Promise<void> {
       await postDataset(item.payload);
       if (item.protocol) markProtocolSent(item.protocol.studyId, item.protocol.userId, item.protocol.ids);
       // This dataset's pending-upload markers now exist server-side → release
-      // any voice memos that were waiting on it.
+      // any voice memos / keystroke logs that were waiting on it.
       if (item.audio) await markAudioReady(item.audio.studyId, item.audio.userId, item.audio.identifiers);
+      if (item.keystrokes) await markKeystrokesReady(item.keystrokes.studyId, item.keystrokes.userId, item.keystrokes.identifiers);
     } catch {
       remaining.push({ ...item, attempts: item.attempts + 1 });
     }
   }
   queue = remaining;
   saveQueue(queue);
-  // Whether or not the queue drained fully, try uploading any ready recordings.
+  // Whether or not the queue drained fully, try uploading any ready recordings/logs.
   void flushAudioQueue();
+  void flushKeystrokeQueue();
 }
 
 export function pendingSubmitCount(): number {
@@ -886,6 +908,7 @@ export function installSubmitQueueFlusher(): () => void {
   const flushAll = () => {
     void flushSubmitQueue();
     void flushAudioQueue();
+    void flushKeystrokeQueue();
   };
   const onOnline = () => flushAll();
   const onVisible = () => {

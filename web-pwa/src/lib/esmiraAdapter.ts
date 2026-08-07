@@ -36,7 +36,7 @@ const OTHER_SPECIFY_PROMPT = 'Please describe your answer.';
 const RENDERABLE = new Set([
   'likert', 'list_single', 'list_multiple', 'binary',
   'text_input', 'number', 'time', 'duration', 'date', 'va_scale',
-  'text', 'image', 'webapp', 'record_audio',
+  'text', 'image', 'webapp', 'record_audio', 'record_keystrokes',
 ]);
 
 /**
@@ -196,6 +196,10 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
         type: 'audio',
         max_recording_seconds: input.maxLength && input.maxLength > 0 ? input.maxLength : 300,
       };
+    case 'record_keystrokes':
+      // Text answer with content-free keystroke-dynamics logging. Typically authored right
+      // after a record_audio item as its skip fallback (paired in adaptQuestionnaire below).
+      return { ...base, type: 'keystroke_text' };
     case 'va_scale':
       return {
         ...base,
@@ -242,6 +246,21 @@ export function adaptQuestionnaire(
     });
     questions.push(...mapped);
   });
+
+  // Pair each voice memo with an immediately-following keystroke_text item as its skip
+  // fallback: that keystroke question is hidden in normal flow and revealed only when the
+  // memo is skipped (surveyEngine.activateFallback). The fallback inherits the memo's prompt
+  // if left blank, so "same question, answered by typing" needs no double-authoring.
+  // (Constraint: the pair must be adjacent and on a non-randomized page.)
+  for (let i = 0; i < questions.length - 1; i++) {
+    const q = questions[i];
+    const next = questions[i + 1];
+    if (q.type === 'audio' && next.type === 'keystroke_text' && !next.is_fallback) {
+      q.skip_fallback_id = next.id;
+      next.is_fallback = true;
+      if (!next.text || !next.text.trim()) next.text = q.text;
+    }
+  }
 
   return {
     session_id: `${studyId}-${q.internalId}-${nowMs}`,

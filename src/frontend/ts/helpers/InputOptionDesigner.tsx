@@ -344,6 +344,15 @@ export class InputOptionDesigner {
 			// api/file_uploads.php), so it's no longer flagged as web-incompatible.
 			view: () => [<div>{this.requiredOption()}</div>]
 		},
+		"record_keystrokes": {
+			title: Lang.get("input_record_keystrokes"),
+			helpUrl: "https://github.com/KL-Psychological-Methodology/ESMira/wiki/Questionnaire-Items#Keystroke-text",
+			category: "media",
+			// Text answer whose keystroke *dynamics* (not content) are logged; participant PWA only.
+			// Native apps do not capture keystrokes, so it is flagged incompatible there.
+			notCompatible: ["Android", "iOS"],
+			view: () => [<div>{this.requiredOption()}</div>]
+		},
 		"share": {
 			title: Lang.get("input_share"),
 			helpUrl: "https://github.com/KL-Psychological-Methodology/ESMira/wiki/Questionnaire-Items#Share-item",

@@ -220,6 +220,13 @@ class CreateDataSet {
 						function($studyId, $userId, $entryId, $key) { return Paths::fileAudioFromData($studyId, $userId, $entryId, $key); },
 						function($userId, $entryId, $key) { return Paths::publicFileAudioFromData($userId, $entryId, $key); }
 					);
+				case 'keystrokes':
+					return $this->prepareFile(
+						$dataSet,
+						$key,
+						function($studyId, $userId, $entryId, $key) { return Paths::fileKeystrokesFromData($studyId, $userId, $entryId, $key); },
+						function($userId, $entryId, $key) { return Paths::publicFileKeystrokesFromData($userId, $entryId, $key); }
+					);
 				default:
 					return $this->getAnswer($dataSet, $key, $backwardsAliases);
 			}

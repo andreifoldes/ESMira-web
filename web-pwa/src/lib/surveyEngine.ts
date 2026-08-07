@@ -85,6 +85,12 @@ export class OfflineSurveyEngine {
    * than a single blended value. See `buildEsmiraResponses`.
    */
   private specifyTexts: Record<string, string> = {};
+  /**
+   * Ids of skip-fallback questions (e.g. a keystroke_text paired to a voice memo) that have
+   * been revealed. A fallback stays hidden until its paired question is skipped, at which point
+   * the skip handler calls `activateFallback`. See `isVisible`.
+   */
+  private activatedFallbacks = new Set<string>();
 
   constructor(session: PreloadedSession) {
     this.session = session;
@@ -117,6 +123,21 @@ export class OfflineSurveyEngine {
     return this.state.responses;
   }
 
+  /**
+   * Whether a question renders in the current flow: its show_if (if any) must hold, and if it's
+   * a skip fallback it must have been activated (its paired question was skipped).
+   */
+  private isVisible(q: PreloadedQuestion): boolean {
+    if (q.show_if && !evaluateShowIf(q.show_if, this.state.responses)) return false;
+    if (q.is_fallback && !this.activatedFallbacks.has(q.id)) return false;
+    return true;
+  }
+
+  /** Reveal a skip-fallback question (called when its paired question is skipped). */
+  activateFallback(questionId: string): void {
+    this.activatedFallbacks.add(questionId);
+  }
+
   getCurrentQuestion(): PreloadedQuestion | null {
     if (this.state.complete) return null;
 
@@ -125,7 +146,7 @@ export class OfflineSurveyEngine {
 
     while (idx < questions.length) {
       const q = questions[idx];
-      if (q.show_if && !evaluateShowIf(q.show_if, this.state.responses)) {
+      if (!this.isVisible(q)) {
         idx++;
         continue;
       }
@@ -255,6 +276,9 @@ export class OfflineSurveyEngine {
       const qid = this.session.questions[i].id;
       delete this.state.responses[qid];
       delete this.specifyTexts[qid];
+      // Reset any downstream skip-fallback activation so re-answering (e.g. recording the memo
+      // this time) correctly re-hides its keystroke fallback instead of showing both.
+      this.activatedFallbacks.delete(qid);
     }
     this.state.currentIndex = idx;
     this.state.complete = false;
@@ -272,7 +296,7 @@ export class OfflineSurveyEngine {
     let skipped = 0;
     for (let i = 0; i < this.state.currentIndex; i++) {
       const q = this.session.questions[i];
-      if (q && q.show_if && !evaluateShowIf(q.show_if, this.state.responses) && !this.state.responses[q.id]) {
+      if (q && !this.isVisible(q) && !this.state.responses[q.id]) {
         skipped++;
       }
     }
@@ -287,7 +311,7 @@ export class OfflineSurveyEngine {
         this.state.currentIndex++;
         continue;
       }
-      if (q.show_if && !evaluateShowIf(q.show_if, this.state.responses)) {
+      if (!this.isVisible(q)) {
         this.state.currentIndex++;
         continue;
       }

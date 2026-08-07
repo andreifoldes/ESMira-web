@@ -70,6 +70,7 @@ class StudyStoreFS extends BaseStudyStoreFS implements StudyStore
 		FileSystemBasics::createFolder(PathsFS::folderPendingUploads($studyId));
 		FileSystemBasics::createFolder(Paths::folderImages($studyId));
 		FileSystemBasics::createFolder(Paths::folderAudio($studyId));
+		FileSystemBasics::createFolder(Paths::folderKeystrokes($studyId));
 		FileSystemBasics::createFolder(PathsFS::folderResponses($studyId));
 		FileSystemBasics::createFolder(PathsFS::folderResponsesIndex($studyId));
 		FileSystemBasics::createFolder(PathsFS::folderMessagesArchive($studyId));
@@ -310,6 +311,8 @@ class StudyStoreFS extends BaseStudyStoreFS implements StudyStore
 		FileSystemBasics::emptyFolder(PathsFS::folderStatistics($studyId));
 		FileSystemBasics::emptyFolder(Paths::folderImages($studyId));
 		FileSystemBasics::emptyFolder(Paths::folderAudio($studyId));
+		if(is_dir(Paths::folderKeystrokes($studyId))) // added after some studies were created; may not exist yet
+			FileSystemBasics::emptyFolder(Paths::folderKeystrokes($studyId));
 		FileSystemBasics::emptyFolder(PathsFS::folderPendingUploads($studyId));
 
 		$mediaZip = Paths::fileMediaZip($studyId);

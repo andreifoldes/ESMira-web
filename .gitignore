@@ -14,6 +14,7 @@
 
 # Claude Code session logs & local tooling config (kept out of version control)
 /.claude/logs/
+/.claude/scheduled_tasks.lock
 /skills-lock.json
 /.mcp.json
 /DESIGN.md

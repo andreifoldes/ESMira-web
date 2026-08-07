@@ -21,6 +21,7 @@ export type InputResponseType =
 	"number" |
 	"photo" |
 	"record_audio" |
+	"record_keystrokes" |
 	"share" |
 	"text" |
 	"text_input" |
@@ -29,7 +30,7 @@ export type InputResponseType =
 	"video" |
 	"webapp"
 
-export type InputMediaTypes = "image" | "audio"
+export type InputMediaTypes = "image" | "audio" | "keystrokes"
 
 export class Input extends DataStructure {
 	public responseType = this.primitive<InputResponseType>("responseType", "text_input")
@@ -79,6 +80,8 @@ export class Input extends DataStructure {
 				return "image";
 			case "record_audio":
 				return "audio";
+			case "record_keystrokes":
+				return "keystrokes";
 			default:
 				return null;
 		}
