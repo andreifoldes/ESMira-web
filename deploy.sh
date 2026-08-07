@@ -13,6 +13,19 @@ set -euo pipefail
 # Safe by design: data/config live in bind-mounted volumes that are never
 # touched; the server docker-compose.yml is backed up before its image line is
 # repointed. Rollback = restore the .bak compose and `docker compose up -d`.
+#
+# Deploy guard: every successful deploy records its exact commit in
+# $REMOTE_DIR/DEPLOYED_SHA on the server. Before building, we read it back and
+# REFUSE to ship unless that live commit is an ancestor of HEAD (i.e. we are
+# strictly ahead of live) — this catches "shipping a stale local while live is
+# ahead", the exact regression a bare version number can't see. Each deploy also
+# auto-bumps package.json's PATCH so dist/VERSION + the injected PACKAGE_VERSION
+# advance (PWA/bundle cache-bust + a visible "what's live" marker); minor/major
+# stay reserved for intentional releases.
+#
+# Env overrides: DEPLOY_SKIP_GUARD=1 (bypass ancestry check — emergencies),
+# DEPLOY_ALLOW_DIRTY=1 (ship an uncommitted tree), DEPLOY_NO_BUMP=1 (don't bump),
+# DEPLOY_PUSH=1 (git push HEAD to origin after a successful deploy).
 
 HOST="${1:-surrey-vps}"
 case "$HOST" in
@@ -29,6 +42,71 @@ esac
 
 IMAGE="esmira-fork:latest"
 CONTAINER_SVC="esmira"
+
+# ── Deploy guard: refuse to ship if live is ahead of us ──────────────────────
+if [ "${DEPLOY_SKIP_GUARD:-0}" = "1" ]; then
+  echo "=== Deploy guard SKIPPED (DEPLOY_SKIP_GUARD=1) ==="
+else
+  echo "=== Deploy guard: verifying live is not ahead of HEAD ==="
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || { echo "ABORT: not inside a git repo." >&2; exit 1; }
+
+  # HEAD must represent exactly what we ship, so the recorded SHA is meaningful.
+  # (The auto version bump below is the only change we make to a clean tree.)
+  if [ -n "$(git status --porcelain)" ] && [ "${DEPLOY_ALLOW_DIRTY:-0}" != "1" ]; then
+    echo "ABORT: working tree has uncommitted changes." >&2
+    echo "       Commit them first (deploy ships committed code), or set DEPLOY_ALLOW_DIRTY=1." >&2
+    exit 1
+  fi
+
+  git fetch -q origin || echo "    (warning: git fetch failed; comparing against local refs)"
+
+  # Fail fast if the box is unreachable (VPN down) — before the local build.
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" true 2>/dev/null; then
+    echo "ABORT: cannot reach $HOST over SSH (VPN down?). Connect and retry." >&2
+    exit 1
+  fi
+
+  LIVE_SHA="$(ssh "$HOST" "cat '$REMOTE_DIR/DEPLOYED_SHA' 2>/dev/null" || true)"
+  HEAD_SHA="$(git rev-parse HEAD)"
+  if [ -z "$LIVE_SHA" ]; then
+    # Bootstrap: no server record yet. Fall back to origin/main as the presumed
+    # live line so this first guarded deploy is still protected from divergence.
+    echo "    no DEPLOYED_SHA on $HOST yet (first guarded deploy) — will record after this run."
+    if git rev-parse -q --verify origin/main >/dev/null 2>&1; then
+      ORIGIN_SHA="$(git rev-parse origin/main)"
+      if ! git merge-base --is-ancestor "$ORIGIN_SHA" "$HEAD_SHA"; then
+        echo "ABORT: origin/main ($ORIGIN_SHA) is not an ancestor of HEAD ($HEAD_SHA)." >&2
+        echo "       You are behind the shared branch. git fetch && git rebase origin/main, then retry." >&2
+        exit 1
+      fi
+      echo "    bootstrap check ok: HEAD is ahead of origin/main."
+    fi
+  elif ! git cat-file -e "${LIVE_SHA}^{commit}" 2>/dev/null; then
+    echo "ABORT: live commit $LIVE_SHA is not in your local history." >&2
+    echo "       Run 'git fetch' (and pull the branch it is on), then retry." >&2
+    exit 1
+  elif ! git merge-base --is-ancestor "$LIVE_SHA" "$HEAD_SHA"; then
+    echo "ABORT: live is running $LIVE_SHA, which is NOT an ancestor of HEAD ($HEAD_SHA)." >&2
+    echo "       Someone shipped newer work. Integrate it first, e.g.:" >&2
+    echo "         git fetch && git rebase origin/main    # or merge" >&2
+    echo "       then retry the deploy." >&2
+    exit 1
+  else
+    echo "    ok: live $LIVE_SHA is behind HEAD $HEAD_SHA — safe to ship."
+  fi
+fi
+
+# ── Auto patch-bump so every deploy advances dist/VERSION + PACKAGE_VERSION ───
+# Committed only AFTER the build + a11y gate pass (below), so a failed build
+# never leaves a release commit behind. Skip with DEPLOY_NO_BUMP=1.
+if [ "${DEPLOY_NO_BUMP:-0}" = "1" ]; then
+  NEW_VERSION="$(node -p "require('./package.json').version")"
+  echo "=== Version bump SKIPPED (DEPLOY_NO_BUMP=1) — staying at v$NEW_VERSION ==="
+else
+  NEW_VERSION="$(npm version patch --no-git-tag-version | tr -d 'v')"
+  echo "=== Version bumped to v$NEW_VERSION (package.json, uncommitted for now) ==="
+fi
 
 echo "=== Building locally (webpack dist/ + participant PWA) ==="
 # `prod` cleans dist/ and copies backend/api/cli/locales into it; build:pwa must
@@ -49,6 +127,16 @@ else
       && { [ -d node_modules ] || npm install --no-audit --no-fund; } \
       && node audit.mjs )
   echo "    accessibility gate passed"
+fi
+
+# Build + a11y gate passed — commit the version bump so HEAD (recorded on the
+# server after deploy) matches the version we are about to ship. Only the
+# version files are committed; any other tree state is left untouched.
+if [ "${DEPLOY_NO_BUMP:-0}" != "1" ] && ! git diff --quiet -- package.json; then
+  git add -- package.json
+  [ -f package-lock.json ] && git add -- package-lock.json || true
+  git commit -q -m "chore(release): v$NEW_VERSION"
+  echo "=== Committed chore(release): v$NEW_VERSION ==="
 fi
 
 echo "=== Syncing Docker build context to $HOST:$REMOTE_DIR/build ==="
@@ -85,4 +173,18 @@ echo "=== Container status + recent push-sender log ==="
 ssh "$HOST" "cd '$REMOTE_DIR' && docker compose ps; echo '--- push log ---'; docker compose exec -T '$CONTAINER_SVC' sh -c 'tail -n 10 /var/log/esmira_push.log 2>/dev/null' || true"
 
 echo ""
-echo "=== Deploy complete ==="
+echo "=== Recording deployed commit on $HOST (the guard reads this next time) ==="
+DEPLOYED_SHA="$(git rev-parse HEAD)"
+printf '%s\n' "$DEPLOYED_SHA" | ssh "$HOST" "cat > '$REMOTE_DIR/DEPLOYED_SHA'"
+echo "    live is now $DEPLOYED_SHA (v$NEW_VERSION)"
+
+# Keep origin mirroring what's live so other machines don't diverge. Opt-in push
+# (DEPLOY_PUSH=1) to respect the "push only when asked" norm; otherwise remind.
+if [ "${DEPLOY_PUSH:-0}" = "1" ]; then
+  git push -q origin HEAD && echo "    pushed HEAD to origin"
+else
+  echo "    reminder: 'git push origin HEAD' to sync origin with what is now live."
+fi
+
+echo ""
+echo "=== Deploy complete (v$NEW_VERSION @ $DEPLOYED_SHA) ==="
