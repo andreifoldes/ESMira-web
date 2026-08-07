@@ -1554,36 +1554,38 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3 — enter the invite code (enabled only once running as the installed app). */}
-            <div className="bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-5 flex flex-col gap-3">
-              <h2 className="text-lg font-bold text-on-surface">Enter your study invite code</h2>
-              <p className="text-sm text-on-surface-variant leading-relaxed">
-                {standalone
-                  ? 'Ask the researcher running your study for your invite code, then enter it below to begin.'
-                  : 'Install and open the app first (steps above) — then enter your invite code here.'}
-              </p>
-              <input
-                type="text"
-                inputMode="text"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                disabled={!standalone}
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitAccessKey(); }}
-                placeholder="Invite code"
-                aria-label="Study invite code"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              />
-              <button
-                onClick={submitAccessKey}
-                disabled={!standalone || !keyInput.trim()}
-                className="w-full bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-50 disabled:active:scale-100"
-              >
-                Continue
-              </button>
-            </div>
+            {/* Step 3 — enter the invite code. Shown only once the app is running as
+                the installed PWA (standalone); in a plain browser tab we show just the
+                install funnel above so participants set up the app first. */}
+            {standalone && (
+              <div className="bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-5 flex flex-col gap-3">
+                <h2 className="text-lg font-bold text-on-surface">Enter your study invite code</h2>
+                <p className="text-sm text-on-surface-variant leading-relaxed">
+                  Ask the researcher running your study for your invite code, then enter it below to begin.
+                </p>
+                <input
+                  type="text"
+                  inputMode="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoFocus
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitAccessKey(); }}
+                  placeholder="Invite code"
+                  aria-label="Study invite code"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  onClick={submitAccessKey}
+                  disabled={!keyInput.trim()}
+                  className="w-full bg-primary text-on-primary font-bold py-3 rounded-full active:scale-95 hover:brightness-110 transition-all disabled:opacity-50 disabled:active:scale-100"
+                >
+                  Continue
+                </button>
+              </div>
+            )}
           </div>
         )}
 
