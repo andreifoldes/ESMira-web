@@ -320,7 +320,8 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
           </div>
         ) : (
           <>
-            {/* Timer: recording counts up to the max; review shows playback position. */}
+            {/* Timer: while recording, just count up (no max shown — recording runs
+                freely up to a silent cap of maxSec); review shows playback position. */}
             <div className="mt-2 flex items-center justify-center gap-2 tabular-nums">
               <span
                 className={cn(
@@ -336,10 +337,7 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
                   <span className="text-base text-on-surface-variant">/ {fmt(reviewDur)}</span>
                 </>
               ) : (
-                <>
-                  <span className="text-base font-semibold text-on-surface">{fmt(elapsed)}</span>
-                  <span className="text-base text-on-surface-variant">/ {fmt(maxSec)}</span>
-                </>
+                <span className="text-base font-semibold text-on-surface">{fmt(elapsed)}</span>
               )}
             </div>
 
