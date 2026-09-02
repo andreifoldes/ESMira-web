@@ -29,7 +29,7 @@ $texts = [
         '<div><b>Picture Description Task</b></div><br>'
         . '<div>You will see a colour illustration of a busy family kitchen scene. When you are'
         . ' ready, record a voice memo describing everything happening in it — there are no right'
-        . ' or wrong answers, and it usually takes a few minutes.</div><br>'
+        . ' or wrong answers.</div><br>'
         . '<div>' . IMG . '</div><br>'
         . '<div>Describe everything that is happening in the picture, as though you were'
         . ' describing it to someone who cannot see it. Please try to use complete sentences.'
