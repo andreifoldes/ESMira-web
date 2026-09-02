@@ -424,11 +424,6 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
                 Tap Stop when you are done — you can review your recording before it is saved.
               </p>
             )}
-            {recordingPhase && (
-              <p className="mt-4 text-center text-xs text-on-surface-variant">
-                Tap Stop when you are done — you can review your recording before it is saved.
-              </p>
-            )}
             {review && (
               <p className="mt-4 text-center text-xs text-on-surface-variant">
                 You can play your recording back before saving, or Redo to record again.
