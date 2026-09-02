@@ -41,6 +41,7 @@ import { SurveyInputs } from './components/SurveyInputs';
 import { AudioRecorder } from './components/AudioRecorder';
 import { KeystrokeRecorder } from './components/KeystrokeRecorder';
 import { InstallPrompt } from './components/InstallPrompt';
+import { ImageLightbox } from './components/ImageLightbox';
 import { WearablesPanel } from './components/WearablesPanel';
 import { saveRecording } from './lib/audioUploads';
 import { saveKeystrokes } from './lib/keystrokeUploads';
@@ -342,6 +343,9 @@ export default function App() {
   // "Other, please specify" free-text modal: set when the participant picks the
   // catch-all option of a list_single that has ESMira's `other` flag enabled.
   const [specify, setSpecify] = useState<PendingSpecify | null>(null);
+  // Fullscreen zoomable viewer for images embedded in question rich text
+  // (e.g. the picture-description illustration). Opened by delegated click below.
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
 
   const scrollRef = useRef<HTMLElement | null>(null);
   // Always-fresh userId for callbacks that would otherwise capture a stale closure.
@@ -451,6 +455,19 @@ export default function App() {
   useEffect(() => {
     const id = setInterval(() => setNowTick((t) => t + 1), 60000);
     return () => clearInterval(id);
+  }, []);
+  // Delegated tap-to-enlarge: any image inside rendered question rich text
+  // (question cards, subtext, chat history) opens the zoomable lightbox. One
+  // document-level listener covers every dangerouslySetInnerHTML render site.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof HTMLImageElement && target.closest('.esmira-rich')) {
+        setLightbox({ src: target.src, alt: target.alt || '' });
+      }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
   }, []);
   // Track display-mode so the invite-code funnel unlocks if the app becomes standalone
   // in-session (e.g. desktop install). A home-screen launch is a fresh load, already
@@ -2295,6 +2312,19 @@ export default function App() {
             textSizeClass={textSizeClass}
             onSubmit={handleSubmitSpecify}
             onBack={handleCancelSpecify}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Zoomable fullscreen viewer for images embedded in question rich text */}
+      <AnimatePresence>
+        {lightbox && (
+          <ImageLightbox
+            key="lightbox"
+            src={lightbox.src}
+            alt={lightbox.alt}
+            reduceMotion={reduceMotion}
+            onClose={() => setLightbox(null)}
           />
         )}
       </AnimatePresence>

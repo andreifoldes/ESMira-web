@@ -233,3 +233,8 @@
   content: "";
   margin-top: 0.4rem;
 }
+/* Embedded images open in the zoomable lightbox (delegated handler in App). */
+.esmira-rich img {
+  cursor: zoom-in;
+  -webkit-tap-highlight-color: transparent;
+}

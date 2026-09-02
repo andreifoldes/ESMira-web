@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Check } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, firstImage } from '../lib/utils';
 import { KeystrokeRecorderCore, type CaptureMode } from '../lib/keystrokeCapture';
 import { newKeystrokeIdentifier } from '../lib/keystrokeUploads';
 import type { PreloadedQuestion } from '../types';
@@ -53,6 +53,10 @@ interface Props {
 export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: Props) {
   const title = firstLine(question.text || '');
   const minChars = question.min_length ?? 0;
+  // Picture-description prompts embed the image in the question text; keep it
+  // visible while writing. The esmira-rich wrapper makes it tap-to-enlarge
+  // via App's delegated lightbox handler.
+  const promptImage = firstImage(question.text || '');
 
   const [progress, setProgress] = useState(0);
   const [lengthShort, setLengthShort] = useState(false);
@@ -170,6 +174,17 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
             <X size={22} aria-hidden="true" />
           </button>
         </div>
+
+        {promptImage && (
+          <div className="esmira-rich mt-3 flex justify-center">
+            <img
+              src={promptImage.src}
+              alt={promptImage.alt}
+              draggable={false}
+              className="max-h-32 rounded-xl object-contain"
+            />
+          </div>
+        )}
 
         <textarea
           ref={textareaRef}

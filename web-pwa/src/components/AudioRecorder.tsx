@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Pause, Play, Mic, Square, RotateCcw, Check } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, firstImage } from '../lib/utils';
 import { newAudioIdentifier } from '../lib/audioUploads';
 import type { PreloadedQuestion } from '../types';
 
@@ -59,6 +59,10 @@ interface Props {
 export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Props) {
   const maxSec = question.max_recording_seconds ?? 300;
   const title = firstLine(question.text || '');
+  // Picture-description prompts embed the image in the question text; keep it
+  // visible while recording. The esmira-rich wrapper makes it tap-to-enlarge
+  // via App's delegated lightbox handler.
+  const promptImage = firstImage(question.text || '');
 
   const [status, setStatus] = useState<Status>('starting');
   const [elapsed, setElapsed] = useState(0);
@@ -320,6 +324,17 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
           </div>
         ) : (
           <>
+            {promptImage && (
+              <div className="esmira-rich mt-3 flex justify-center">
+                <img
+                  src={promptImage.src}
+                  alt={promptImage.alt}
+                  draggable={false}
+                  className="max-h-40 rounded-xl object-contain"
+                />
+              </div>
+            )}
+
             {/* Timer: while recording, just count up (no max shown — recording runs
                 freely up to a silent cap of maxSec); review shows playback position. */}
             <div className="mt-2 flex items-center justify-center gap-2 tabular-nums">
