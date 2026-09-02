@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Check } from 'lucide-react';
-import { cn, firstImage } from '../lib/utils';
+import { cn, splitQuestionHtml } from '../lib/utils';
 import { KeystrokeRecorderCore, type CaptureMode } from '../lib/keystrokeCapture';
 import { newKeystrokeIdentifier } from '../lib/keystrokeUploads';
 import type { PreloadedQuestion } from '../types';
@@ -51,12 +51,13 @@ interface Props {
 }
 
 export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: Props) {
-  const title = firstLine(question.text || '');
   const minChars = question.min_length ?? 0;
-  // Picture-description prompts embed the image in the question text; keep it
-  // visible while writing. The esmira-rich wrapper makes it tap-to-enlarge
-  // via App's delegated lightbox handler.
-  const promptImage = firstImage(question.text || '');
+  // Picture-description prompts embed the image mid-text: the pitch before it
+  // stays on the chat card, while the picture and the instructions after it
+  // are shown here. The esmira-rich wrapper makes the image tap-to-enlarge via
+  // App's delegated lightbox handler.
+  const { intro, image: promptImage, detail } = splitQuestionHtml(question.text || '');
+  const title = firstLine(intro || question.text || '');
 
   const [progress, setProgress] = useState(0);
   const [lengthShort, setLengthShort] = useState(false);
@@ -161,7 +162,7 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
         aria-label={title}
         initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full sm:max-w-md bg-white dark:bg-surface-container-lowest rounded-t-3xl sm:rounded-3xl shadow-2xl px-6 pt-4 pb-7"
+        className="relative w-full sm:max-w-md max-h-[88vh] overflow-y-auto bg-white dark:bg-surface-container-lowest rounded-t-3xl sm:rounded-3xl shadow-2xl px-6 pt-4 pb-7"
       >
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-outline-variant/50 sm:hidden" />
         <div className="relative flex items-center justify-center min-h-8">
@@ -184,6 +185,12 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
               className="max-h-32 rounded-xl object-contain"
             />
           </div>
+        )}
+        {detail && (
+          <div
+            className="mt-3 text-sm text-on-surface-variant leading-relaxed esmira-rich"
+            dangerouslySetInnerHTML={{ __html: detail }}
+          />
         )}
 
         <textarea

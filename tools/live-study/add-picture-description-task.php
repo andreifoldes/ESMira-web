@@ -67,11 +67,18 @@ if ($targetQuestionnaire === null) {
     exit(1);
 }
 
+// Text structure follows the PWA's card/modal split (PWA >= 3.6.11): the pitch
+// before the <img> renders on the chat card; the image + instructions after it
+// appear only inside the recorder/writing modal.
 $audioInput = (object)[
     'responseType' => 'record_audio',
     'maxLength' => 300,
     'name' => AUDIO_NAME,
-    'text' => '<div>Please describe the picture below.</div><br><div>' . IMG . '</div><br>'
+    'text' => '<div><b>Picture Description Task</b></div><br>'
+        . '<div>You will see a colour illustration of a busy family kitchen scene. When you are'
+        . ' ready, record a voice memo describing everything happening in it — there are no right'
+        . ' or wrong answers, and it usually takes a few minutes.</div><br>'
+        . '<div>' . IMG . '</div><br>'
         . '<div>Describe everything that is happening in the picture, as though you were'
         . ' describing it to someone who cannot see it. Please try to use complete sentences.'
         . ' There is no right or wrong answer — just keep talking about everything you see'
@@ -83,7 +90,11 @@ $typedInput = (object)[
     'responseType' => 'record_keystrokes',
     'minLength' => 200,
     'name' => TYPED_NAME,
-    'text' => '<div>Please describe the picture below in writing.</div><br><div>' . IMG . '</div><br>'
+    'text' => '<div><b>Picture Description Task</b></div><br>'
+        . '<div>You will see a colour illustration of a busy family kitchen scene. Please write'
+        . ' a description of everything happening in it — there are no right or wrong'
+        . ' answers.</div><br>'
+        . '<div>' . IMG . '</div><br>'
         . '<div>Write a description of everything that is happening in the picture, as though'
         . ' you were describing it to someone who cannot see it. Please try to use complete'
         . ' sentences. Do not worry about typos — there is no right or wrong answer.</div>',

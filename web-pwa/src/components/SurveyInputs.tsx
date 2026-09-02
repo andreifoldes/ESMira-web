@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { ChevronRight, Check, Play, Mic, PenLine } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, splitQuestionHtml } from '../lib/utils';
 import type { PreloadedQuestion } from '../types';
 
 const OPTION_ICONS: Record<string, string> = {
@@ -123,9 +123,17 @@ export function SurveyInputs({
             // may contain HTML (<div>/<br>/<b>…). Render it as rich text rather than
             // escaped plain text, otherwise participants see literal markup. Covers
             // every input type's label, not just voice memos.
+            // Audio/typed questions with an embedded image (picture-description
+            // tasks) show only the pitch before the image here — the picture and
+            // the detailed instructions live inside the recorder/writing modal.
             <div
               className={cn('font-semibold text-on-surface leading-snug mb-2 esmira-rich', textSizeClass)}
-              dangerouslySetInnerHTML={{ __html: question.text }}
+              dangerouslySetInnerHTML={{
+                __html:
+                  question.type === 'audio' || question.type === 'keystroke_text'
+                    ? splitQuestionHtml(question.text).intro
+                    : question.text,
+              }}
             />
           ) : (
             <p className={cn('font-semibold text-on-surface leading-snug mb-2 whitespace-pre-wrap', textSizeClass)}>

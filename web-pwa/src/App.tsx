@@ -16,7 +16,7 @@ import {
   FileText, ShieldCheck, Bell, BellRing, BellOff, MessageSquare, UploadCloud, Clock, RefreshCw,
   Download, Bug, ExternalLink, Watch, Lock, Check,
 } from 'lucide-react';
-import { cn } from './lib/utils';
+import { cn, splitQuestionHtml } from './lib/utils';
 import { OfflineSurveyEngine } from './lib/surveyEngine';
 import type { PendingSpecify } from './lib/surveyEngine';
 import { adaptQuestionnaire } from './lib/esmiraAdapter';
@@ -1147,7 +1147,7 @@ export default function App() {
       // Tag both with the question id so "Change response" can rewind/remove them.
       // Rich-text prompts (e.g. voice memos) carry HTML in `text`; render them as
       // HTML like the live card, otherwise the bubble shows literal <div>/<br>.
-      pushBot(q.text, !!q.is_html, questionId);
+      pushBot(settledQuestionHtml(q), !!q.is_html, questionId);
       pushUser(formatAnswer(q, value), questionId);
     }
     afterAdvance(next);
@@ -1237,6 +1237,14 @@ export default function App() {
   const isCognitiveQid = (qid: string): boolean =>
     engineRef.current?.session.questions.find((x) => x.id === qid)?.type === 'cognitive';
 
+  // A settled question's bubble text: picture tasks (audio/typed with an
+  // embedded image) settle as their pitch only, matching the live card — the
+  // image stays exclusive to the recorder modal.
+  const settledQuestionHtml = (q: PreloadedQuestion): string =>
+    (q.type === 'audio' || q.type === 'keystroke_text') && q.is_html
+      ? splitQuestionHtml(q.text).intro
+      : q.text;
+
   // Settle a question into the thread when it's skipped or continued past.
   // Cognitive link-out items hold raw HTML in `text` (rendered live as a launch
   // card via title/description, never as text), so settling that text as a plain
@@ -1244,7 +1252,7 @@ export default function App() {
   // matching how a *completed* cognitive task is settled.
   const settleQuestionIntoThread = (q: PreloadedQuestion, qid?: string) => {
     if (q.type === 'cognitive') pushBot(q.title || 'Cognitive task', false, qid);
-    else pushBot(q.text, !!q.is_html, qid);
+    else pushBot(settledQuestionHtml(q), !!q.is_html, qid);
   };
 
   const handleContinueInfo = () => {
