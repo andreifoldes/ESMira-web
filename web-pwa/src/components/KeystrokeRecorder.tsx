@@ -11,6 +11,8 @@
  * is comparably substantial to the ~5-minute voice memo. It tracks *active* writing time
  * (idle gaps don't count) and shows a progress cue + a gentle re-engagement line on a lull —
  * never a hard countdown, and Save is always available (this is the optional fallback).
+ * When the question sets `min_length`, a character floor is folded into the same nudge:
+ * the progress bar completes only once both time and length targets are met.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -50,8 +52,10 @@ interface Props {
 
 export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: Props) {
   const title = firstLine(question.text || '');
+  const minChars = question.min_length ?? 0;
 
   const [progress, setProgress] = useState(0);
+  const [lengthShort, setLengthShort] = useState(false);
   const [idle, setIdle] = useState(false);
   const [hasText, setHasText] = useState(false);
 
@@ -63,6 +67,7 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
   const activeMsRef = useRef(0);
   const lastKeyMsRef = useRef<number | null>(null);
   const hasTextRef = useRef(false);
+  const charCountRef = useRef(0);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -85,6 +90,7 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
       const last = lastKeyMsRef.current;
       if (last != null) activeMsRef.current += Math.min(now - last, IDLE_GAP_MS);
       lastKeyMsRef.current = now;
+      charCountRef.current = ta.value.trim().length;
       const nowHasText = ta.value.length > 0;
       if (nowHasText !== hasTextRef.current) { hasTextRef.current = nowHasText; setHasText(nowHasText); }
     };
@@ -104,9 +110,14 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
     ta.focus(); // anchors t0 and emits the opening focus_gained marker
 
     const iv = setInterval(() => {
-      setProgress(Math.min(1, activeMsRef.current / TARGET_MS));
+      // Overall progress is the lower of the time and length targets, so the bar only
+      // completes once both are met (length target is a no-op when minChars is 0).
+      const timeProgress = Math.min(1, activeMsRef.current / TARGET_MS);
+      const lengthProgress = minChars > 0 ? Math.min(1, charCountRef.current / minChars) : 1;
+      setProgress(Math.min(timeProgress, lengthProgress));
+      setLengthShort(timeProgress >= 1 && lengthProgress < 1);
       const lk = lastKeyMsRef.current;
-      setIdle(lk != null && performance.now() - lk > IDLE_HINT_MS && activeMsRef.current < TARGET_MS);
+      setIdle(lk != null && performance.now() - lk > IDLE_HINT_MS && (timeProgress < 1 || lengthProgress < 1));
     }, TICK_MS);
 
     return () => {
@@ -180,7 +191,9 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
             ? 'Still with you? Keep writing whatever comes to mind — no need for polish.'
             : reached
               ? "That's plenty — finish whenever you're ready, or keep going."
-              : 'Try to keep writing continuously for about two minutes.'}
+              : lengthShort
+                ? 'Almost there — a few more sentences will do.'
+                : 'Try to keep writing continuously for about two minutes.'}
         </p>
 
         <div className="mt-5 flex justify-end">

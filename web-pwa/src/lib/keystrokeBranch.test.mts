@@ -37,6 +37,16 @@ test('adapter pairs the memo with an adjacent keystroke_text fallback and inheri
   assert.equal(memoText.text, 'Talk about your day today.'); // inherited (was blank)
 });
 
+test('adapter maps minLength to a soft min_length target (0 when absent)', () => {
+  const q = makeQuestionnaire();
+  const noMin = adaptQuestionnaire(1, q, 0).questions[1];
+  assert.equal(noMin.min_length, 0);
+
+  q.pages[0].inputs[1].minLength = 200;
+  const withMin = adaptQuestionnaire(1, q, 0).questions[1];
+  assert.equal(withMin.min_length, 200);
+});
+
 test('the keystroke fallback is hidden until the memo is skipped (activateFallback)', () => {
   const session = adaptQuestionnaire(1, makeQuestionnaire(), 0);
   const engine = new OfflineSurveyEngine(session);

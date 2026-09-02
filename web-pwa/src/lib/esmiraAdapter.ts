@@ -199,7 +199,11 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
     case 'record_keystrokes':
       // Text answer with content-free keystroke-dynamics logging. Typically authored right
       // after a record_audio item as its skip fallback (paired in adaptQuestionnaire below).
-      return { ...base, type: 'keystroke_text' };
+      return {
+        ...base,
+        type: 'keystroke_text',
+        min_length: input.minLength && input.minLength > 0 ? input.minLength : 0,
+      };
     case 'va_scale':
       return {
         ...base,

@@ -66,6 +66,9 @@ export interface PreloadedQuestion {
   // Set on a `keystroke_text` question that is a skip fallback: hidden in normal flow, revealed
   // only when its paired audio question is skipped (surveyEngine.activateFallback).
   is_fallback?: boolean;
+  // keystroke_text: soft minimum typed length in characters. Folded into the writing
+  // nudge (progress bar completes only once reached) — never blocks Save.
+  min_length?: number;
 }
 
 export interface PreloadedSection {
@@ -133,6 +136,8 @@ export interface EsmiraInput {
   webappDescription?: string;
   /** "record_audio" type: max recording length in seconds (falls back to 300 = 5 min). */
   maxLength?: number;
+  /** "record_keystrokes" type: soft minimum typed length in characters (nudge only). */
+  minLength?: number;
 }
 
 export interface EsmiraPage {

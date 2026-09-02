@@ -47,6 +47,12 @@ export class Input extends DataStructure {
 	public playSound = this.primitive<boolean>("playSound", false)
 	public showValue = this.primitive<boolean>("showValue", false)
 	public maxValue = this.primitive<number>("maxValue", 0)
+	// Web/PWA client only. "record_audio": max recording length in seconds (0 = default 300).
+	// Registered here so designer saves round-trip the value even without a UI option.
+	public maxLength = this.primitive<number>("maxLength", 0)
+	// Web/PWA client only. "record_keystrokes": soft minimum typed length in characters —
+	// folded into the writing nudge, never blocks saving (0 = no length target).
+	public minLength = this.primitive<number>("minLength", 0)
 	public resolution = this.primitive<number>("resolution", 0)
 	public quality = this.primitive<number>("quality", 100)
 	public relevance = this.primitive<string>("relevance", "")
