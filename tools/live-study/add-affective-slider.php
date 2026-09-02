@@ -30,8 +30,10 @@ use backend\ResponsesIndex;
 
 const STUDY_ID = 9727;
 const URL = 'https://iemabot.surrey.ac.uk/webapp/novel-assessments/affective-slider/index.html';
-// questionnaire internalId => input-name prefix (both check-ins share the same names)
-const TARGETS = [29855 => 'morning', 37547 => 'momentaryCheckin', 37548 => 'momentaryCheckin', 21583 => 'evening'];
+// Input-name prefixes whose "<prefix>Upset" PANAS item anchors the insertion. Matched by
+// anchor presence (not questionnaire internalId) so questionnaire splits/merges don't
+// break the script; every prefix must match at least one questionnaire.
+const PREFIXES = ['morning', 'momentaryCheckin', 'evening'];
 
 $apply = ($argv[1] ?? '') === 'apply';
 
@@ -42,29 +44,30 @@ if (!isset($study->id)) {
     exit(1);
 }
 
-$inserted = 0;
+$matchedPrefixes = [];
 foreach ($study->questionnaires as $questionnaire) {
-    $prefix = TARGETS[$questionnaire->internalId] ?? null;
+    $prefix = null;
+    $anchorPageIndex = null;
+    foreach ($questionnaire->pages as $pi => $page) {
+        foreach ($page->inputs as $input) {
+            $name = $input->name ?? '';
+            foreach (PREFIXES as $p) {
+                if ($name === $p . 'AffectiveSlider') {
+                    fwrite(STDERR, "$name already exists in \"{$questionnaire->title}\" — nothing to do\n");
+                    exit(1);
+                }
+                if ($name === $p . 'Upset') {
+                    $prefix = $p;
+                    $anchorPageIndex = $pi;
+                }
+            }
+        }
+    }
     if ($prefix === null)
         continue;
 
     $sliderName = $prefix . 'AffectiveSlider';
-    $anchorName = $prefix . 'Upset';
-    $anchorPageIndex = null;
-    foreach ($questionnaire->pages as $pi => $page) {
-        foreach ($page->inputs as $input) {
-            if (($input->name ?? '') === $sliderName) {
-                fwrite(STDERR, "$sliderName already exists in \"{$questionnaire->title}\" — nothing to do\n");
-                exit(1);
-            }
-            if (($input->name ?? '') === $anchorName)
-                $anchorPageIndex = $pi;
-        }
-    }
-    if ($anchorPageIndex === null) {
-        fwrite(STDERR, "$anchorName (PANAS page) not found in \"{$questionnaire->title}\"\n");
-        exit(1);
-    }
+    $matchedPrefixes[$prefix] = true;
 
     $newPage = (object)[
         'header' => 'Affective Slider',
@@ -81,10 +84,10 @@ foreach ($study->questionnaires as $questionnaire) {
     ];
     array_splice($questionnaire->pages, $anchorPageIndex + 1, 0, [$newPage]);
     echo "\"{$questionnaire->title}\": will insert $sliderName after PANAS page $anchorPageIndex\n";
-    $inserted++;
 }
-if ($inserted !== count(TARGETS)) {
-    fwrite(STDERR, "Expected " . count(TARGETS) . " questionnaires, matched $inserted — aborting\n");
+$missing = array_diff(PREFIXES, array_keys($matchedPrefixes));
+if (count($missing) > 0) {
+    fwrite(STDERR, 'No PANAS anchor found for prefix(es): ' . implode(', ', $missing) . " — aborting\n");
     exit(1);
 }
 
@@ -121,4 +124,4 @@ foreach ($study->questionnaires as $questionnaire) {
 }
 
 $studyStore->saveStudy((object)['_' => $study], $questionnaireKeys);
-echo "Saved. Affective Slider is live in all 4 daily questionnaires; subVersion {$study->subVersion}\n";
+echo "Saved. Affective Slider is live in every PANAS-carrying questionnaire; subVersion {$study->subVersion}\n";
