@@ -585,7 +585,19 @@ export default function App() {
   // ── Auto-scroll to bottom ────────────────────────────────────
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
+    if (!el) return;
+    const behavior = reduceMotion ? ('auto' as const) : ('smooth' as const);
+    // Choice lists render full-height (no nested scrollbox), so a question card can be
+    // taller than the viewport (e.g. the 9-option KSS). Scrolling to the bottom would
+    // push the question text off-screen — align the card's top instead so the
+    // participant reads the question first, then scrolls down through the options.
+    const live = el.querySelector<HTMLElement>('[data-live-question]');
+    if (live && live.offsetHeight > el.clientHeight) {
+      const delta = live.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      el.scrollTo({ top: el.scrollTop + delta - 12, behavior });
+    } else {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    }
   }, [messages, currentQuestion, phase, reduceMotion]);
 
   // ── Consent ──────────────────────────────────────────────────

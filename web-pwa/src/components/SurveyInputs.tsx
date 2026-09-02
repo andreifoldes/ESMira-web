@@ -82,7 +82,7 @@ export function SurveyInputs({
   onOpenKeystroke,
 }: Props) {
   return (
-    <div className="pb-4 pt-2 self-start max-w-[85%] w-[85%]">
+    <div data-live-question className="pb-4 pt-2 self-start max-w-[85%] w-[85%]">
       {/* Progress bar */}
       <div className="mb-3 flex items-center gap-2">
         <div className="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
@@ -346,24 +346,24 @@ function YesNoInput({ question, onRespond }: { question: PreloadedQuestion; onRe
 }
 
 function ChoiceList({ question, onRespond }: { question: PreloadedQuestion; onRespond: (id: string, v: string) => void }) {
+  // Full-height list: every option is rendered (no nested scrollbox), so scales like
+  // the KSS are visible in their entirety. Tall lists rely on the page scroll — the
+  // auto-scroll in App aligns the question's top when the card exceeds the viewport.
   return (
-    <div className="relative mt-4">
-      <div role="group" aria-label="Answer options" className="flex flex-col gap-2 max-h-60 overflow-y-auto thick-scrollbar pr-2 pb-6">
-        {question.options!.map((opt) => (
-          <button
-            key={opt}
-            onClick={() => onRespond(question.id, opt)}
-            className="w-full flex items-center justify-between px-4 py-3 bg-surface-container-low hover:bg-surface-container-high rounded-xl transition-colors text-left group shrink-0"
-          >
-            <span className="font-medium text-sm">
-              {OPTION_ICONS[opt] && <span className="mr-2">{OPTION_ICONS[opt]}</span>}
-              {opt}
-            </span>
-            <ChevronRight size={16} className="text-outline-variant group-hover:text-primary" aria-hidden="true" />
-          </button>
-        ))}
-      </div>
-      <div className="absolute bottom-0 left-0 right-2 h-8 bg-gradient-to-t from-white dark:from-surface-container-lowest to-transparent pointer-events-none rounded-b-xl" />
+    <div role="group" aria-label="Answer options" className="mt-4 flex flex-col gap-2">
+      {question.options!.map((opt) => (
+        <button
+          key={opt}
+          onClick={() => onRespond(question.id, opt)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-surface-container-low hover:bg-surface-container-high rounded-xl transition-colors text-left group shrink-0"
+        >
+          <span className="font-medium text-sm">
+            {OPTION_ICONS[opt] && <span className="mr-2">{OPTION_ICONS[opt]}</span>}
+            {opt}
+          </span>
+          <ChevronRight size={16} className="text-outline-variant group-hover:text-primary" aria-hidden="true" />
+        </button>
+      ))}
     </div>
   );
 }
@@ -378,7 +378,7 @@ function MultiChoice({ question, onRespond }: { question: PreloadedQuestion; onR
     });
   return (
     <div className="mt-4 flex flex-col gap-2">
-      <div role="group" aria-label="Select all that apply" className="flex flex-col gap-2 max-h-60 overflow-y-auto thick-scrollbar pr-2">
+      <div role="group" aria-label="Select all that apply" className="flex flex-col gap-2">
         {question.options!.map((opt) => {
           const on = selected.has(opt);
           return (
