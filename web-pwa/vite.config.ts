@@ -60,7 +60,7 @@ export default defineConfig({
       },
       injectManifest: {
         // Files to precache (the runtime caches/routes live in src/sw.ts).
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,ico,woff2}'],
       },
       // Exercise the service worker under `npm run dev` (which proxies /esmira/api).
       devOptions: { enabled: true, type: 'module' },
