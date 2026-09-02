@@ -33,9 +33,14 @@ case "$HOST" in
     HOST="surrey-vps"
     REMOTE_DIR="/home/tf0011/esmira"
     ;;
+  iema-ts)
+    # Same VPS reached over Tailscale (ssh alias in ~/.ssh/config) — works
+    # without the Surrey VPN. Same remote layout as surrey-vps.
+    REMOTE_DIR="/home/tf0011/esmira"
+    ;;
   *)
     echo "Unknown host: $HOST" >&2
-    echo "Valid hosts: surrey-vps" >&2
+    echo "Valid hosts: surrey-vps, iema-ts" >&2
     exit 1
     ;;
 esac
