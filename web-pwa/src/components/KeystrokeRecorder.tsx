@@ -162,7 +162,13 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
         aria-label={title}
         initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full sm:max-w-md max-h-[88vh] overflow-y-auto bg-white dark:bg-surface-container-lowest rounded-t-3xl sm:rounded-3xl shadow-2xl px-6 pt-4 pb-7"
+        // With a prompt image the sheet goes full-height: the picture gets ~30%
+        // of the viewport (tap it for the fullscreen lightbox) while the writing
+        // area stays large; instructions cap + scroll rather than squeeze either.
+        className={cn(
+          'relative w-full sm:max-w-md flex flex-col max-h-[92dvh] overflow-y-auto bg-white dark:bg-surface-container-lowest rounded-t-3xl sm:rounded-3xl shadow-2xl px-6 pt-4 pb-7',
+          promptImage && 'h-[92dvh] sm:h-auto',
+        )}
       >
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-outline-variant/50 sm:hidden" />
         <div className="relative flex items-center justify-center min-h-8">
@@ -177,18 +183,22 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
         </div>
 
         {promptImage && (
-          <div className="esmira-rich mt-3 flex justify-center">
+          // Full-bleed (-mx-6 cancels the card padding) so the picture reaches
+          // the width-bound maximum its 4:3 aspect allows on a phone.
+          <div className="esmira-rich mt-2 -mx-6 shrink-0 flex justify-center">
             <img
               src={promptImage.src}
               alt={promptImage.alt}
               draggable={false}
-              className="max-h-32 rounded-xl object-contain"
+              className="w-full max-h-[30dvh] object-contain"
             />
           </div>
         )}
         {detail && (
+          // Capped + scrollable so long instructions never squeeze the picture
+          // or shrink the writing area.
           <div
-            className="mt-3 text-sm text-on-surface-variant leading-relaxed esmira-rich"
+            className="mt-3 max-h-14 overflow-y-auto shrink-0 text-sm text-on-surface-variant leading-relaxed esmira-rich"
             dangerouslySetInnerHTML={{ __html: detail }}
           />
         )}
@@ -198,17 +208,17 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
           rows={7}
           aria-label={title || 'Your answer'}
           placeholder="Start typing your answer here…"
-          className="mt-4 w-full h-44 sm:h-52 resize-none rounded-2xl border border-outline-variant/60 bg-surface-container-lowest px-4 py-3 text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-2 focus:ring-primary"
+          className="mt-4 w-full flex-1 min-h-36 h-44 sm:h-52 resize-none rounded-2xl border border-outline-variant/60 bg-surface-container-lowest px-4 py-3 text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-2 focus:ring-primary"
         />
 
         {/* Soft nudge: progress toward ~2 min of continuous writing (no numeric countdown). */}
-        <div className="mt-4 h-1.5 w-full rounded-full bg-surface-container-high overflow-hidden" aria-hidden="true">
+        <div className="mt-4 h-1.5 w-full shrink-0 rounded-full bg-surface-container-high overflow-hidden" aria-hidden="true">
           <div
             className={cn('h-full rounded-full transition-[width] duration-500', reached ? 'bg-primary' : 'bg-primary/70')}
             style={{ width: `${Math.round(progress * 100)}%` }}
           />
         </div>
-        <p className="mt-2 text-center text-xs text-on-surface-variant" aria-live="polite">
+        <p className="mt-2 shrink-0 text-center text-xs text-on-surface-variant" aria-live="polite">
           {idle
             ? 'Still with you? Keep writing whatever comes to mind — no need for polish.'
             : reached
@@ -218,7 +228,7 @@ export function KeystrokeRecorder({ question, reduceMotion, onCancel, onSave }: 
                 : 'Try to keep writing continuously for about two minutes.'}
         </p>
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-3 shrink-0 flex justify-end">
           <button
             onClick={commit}
             disabled={!hasText}

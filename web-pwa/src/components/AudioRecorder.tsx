@@ -277,7 +277,13 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
         aria-label={title}
         initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full sm:max-w-md max-h-[88vh] overflow-y-auto bg-white dark:bg-surface-container-lowest rounded-t-3xl sm:rounded-3xl shadow-2xl px-6 pt-4 pb-7"
+        // With a prompt image the sheet goes full-height and lays out as a flex
+        // column: controls pin to the bottom and the picture absorbs all leftover
+        // space (flex-1) — as large as the screen allows for older participants.
+        className={cn(
+          'relative w-full sm:max-w-md flex flex-col max-h-[94dvh] overflow-y-auto bg-white dark:bg-surface-container-lowest rounded-t-3xl sm:rounded-3xl shadow-2xl px-6 pt-4 pb-7',
+          promptImage && 'h-[94dvh] sm:h-auto',
+        )}
       >
         {/* Grab handle + header */}
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-outline-variant/50 sm:hidden" />
@@ -326,25 +332,29 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
         ) : (
           <>
             {promptImage && (
-              <div className="esmira-rich mt-3 flex justify-center">
+              // Full-bleed (-mx-6 cancels the card padding) so the picture reaches
+              // the width-bound maximum its 4:3 aspect allows on a phone.
+              <div className="esmira-rich mt-2 -mx-6 flex-1 min-h-0 flex justify-center">
                 <img
                   src={promptImage.src}
                   alt={promptImage.alt}
                   draggable={false}
-                  className="max-h-40 rounded-xl object-contain"
+                  className="w-full max-h-full self-center object-contain"
                 />
               </div>
             )}
             {detail && (
+              // Capped + scrollable so long instructions never squeeze the picture
+              // or push the recording controls off-screen.
               <div
-                className="mt-3 text-sm text-on-surface-variant leading-relaxed esmira-rich"
+                className="mt-3 max-h-16 overflow-y-auto shrink-0 text-sm text-on-surface-variant leading-relaxed esmira-rich"
                 dangerouslySetInnerHTML={{ __html: detail }}
               />
             )}
 
             {/* Timer: while recording, just count up (no max shown — recording runs
                 freely up to a silent cap of maxSec); review shows playback position. */}
-            <div className="mt-2 flex items-center justify-center gap-2 tabular-nums">
+            <div className={cn('shrink-0 flex items-center justify-center gap-2 tabular-nums', promptImage ? 'mt-1' : 'mt-2')}>
               <span
                 className={cn(
                   'inline-block h-2.5 w-2.5 rounded-full',
@@ -363,8 +373,12 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
               )}
             </div>
 
-            {/* Waveform: live while recording; a play-progress fill while reviewing. */}
-            <div className="mt-5 mb-6 flex items-center justify-center gap-[3px] h-20" aria-hidden="true">
+            {/* Waveform: live while recording; a play-progress fill while reviewing.
+                Compact when a prompt image needs the vertical space. */}
+            <div
+              className={cn('shrink-0 flex items-center justify-center gap-[3px]', promptImage ? 'h-10 my-2' : 'h-16 mt-3 mb-4')}
+              aria-hidden="true"
+            >
               {bars.map((amp, i) => {
                 const played = review && i < playedBars;
                 return (
@@ -375,13 +389,13 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
                       recordingPhase ? 'bg-primary' : review ? (played ? 'bg-primary' : 'bg-outline-variant') : 'bg-outline-variant',
                     )}
                     style={{
-                      height: `${Math.max(4, amp * 72)}px`,
+                      height: `${Math.max(4, amp * (promptImage ? 36 : 60))}px`,
                       opacity: recordingPhase ? 0.55 + amp * 0.45 : review ? (played ? 1 : 0.5) : 0.4,
                     }}
                   />
                 );
               })}
-              {recording && <div className="w-[2px] h-16 rounded-full ml-0.5 bg-primary" />}
+              {recording && <div className={cn('w-[2px] rounded-full ml-0.5 bg-primary', promptImage ? 'h-8' : 'h-12')} />}
             </div>
 
             {/* Hidden player for the review phase. */}
@@ -396,7 +410,7 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
             )}
 
             {/* Controls */}
-            <div className="flex items-center justify-between">
+            <div className="shrink-0 flex items-center justify-between">
               <button
                 onClick={redo}
                 disabled={status === 'starting'}
@@ -441,13 +455,14 @@ export function AudioRecorder({ question, reduceMotion, onCancel, onSave }: Prop
               )}
             </div>
 
-            {recordingPhase && (
-              <p className="mt-4 text-center text-xs text-on-surface-variant">
+            {/* The recording hint yields its space to the prompt image on phones. */}
+            {recordingPhase && !promptImage && (
+              <p className="mt-4 shrink-0 text-center text-xs text-on-surface-variant">
                 Tap Stop when you are done — you can review your recording before it is saved.
               </p>
             )}
             {review && (
-              <p className="mt-4 text-center text-xs text-on-surface-variant">
+              <p className={cn('shrink-0 text-center text-xs text-on-surface-variant', promptImage ? 'mt-2' : 'mt-4')}>
                 You can play your recording back before saving, or Redo to record again.
               </p>
             )}
