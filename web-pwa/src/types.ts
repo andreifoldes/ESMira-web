@@ -123,6 +123,12 @@ export interface EsmiraInput {
   text?: string;
   /** Optional explanatory text shown beneath the question (rich HTML, web/PWA only). */
   description?: string;
+  /**
+   * ESMira relevance condition — the input only shows when it holds. Native apps
+   * evaluate this as a full Merlin script; this PWA supports the single-comparison
+   * subset parsed by esmiraAdapter.parseRelevance (e.g. `eveningNapCount != 0`).
+   */
+  relevance?: string;
   required?: boolean;
   likertSteps?: number;
   leftSideLabel?: string;

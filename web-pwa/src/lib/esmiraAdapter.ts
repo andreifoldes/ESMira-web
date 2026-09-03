@@ -23,6 +23,7 @@ import type {
   PreloadedQuestion,
   PreloadedSection,
   PreloadedSession,
+  ShowIf,
 } from '../types';
 
 /**
@@ -58,6 +59,25 @@ function extractCognitive(html: string): { url: string; title: string; descripti
   return { url, title, description };
 }
 
+/**
+ * Parse an ESMira `relevance` condition into the engine's ShowIf shape, supporting
+ * the single-comparison subset this PWA evaluates: `name == value`, `name != value`
+ * or `name >= value` (value optionally quoted). Native apps treat relevance as a
+ * full Merlin script and ESMira's stock web client ignores it entirely, so studies
+ * served through this PWA author the simple form. Anything else parses to null and
+ * the question always shows — fail open rather than silently dropping a question
+ * over an unsupported expression. The controlling question must come earlier in
+ * flow (same or prior non-randomized page); until it's answered the dependent
+ * question stays hidden (surveyEngine.evaluateShowIf).
+ */
+export function parseRelevance(relevance: string | undefined): ShowIf | null {
+  if (!relevance) return null;
+  const m = /^\s*([A-Za-z_]\w*)\s*(==|!=|>=)\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*$/.exec(relevance);
+  if (!m) return null;
+  const operator = m[2] === '==' ? 'equals' : m[2] === '!=' ? 'not_equals' : 'gte';
+  return { question_id: m[1], operator, value: m[3] ?? m[4] ?? m[5] ?? '' };
+}
+
 /** Fisher–Yates shuffle (per-session randomization of randomized pages). */
 function shuffle<T>(arr: T[]): T[] {
   const a = arr.slice();
@@ -90,7 +110,7 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
     // text instead of dumping literal markup. Stripped back to plain text where a
     // string is needed (cognitive titles, aria-labels).
     is_html: true,
-    show_if: null,
+    show_if: parseRelevance(input.relevance),
     other_specify: null,
   };
 
