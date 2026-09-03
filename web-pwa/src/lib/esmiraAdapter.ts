@@ -128,7 +128,7 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       title,
       description: input.webappDescription ?? '',
       // `v` busts any wrapper HTML cached before embed-mode shipped (see below).
-      launch_url: url ? `${url}${sep}embed=1&v=2` : '',
+      launch_url: url ? `${url}${sep}embed=1&v=3` : '',
       launch_label: `Start the ${title}`,
     };
   }
@@ -148,7 +148,7 @@ function mapInput(input: EsmiraInput): PreloadedQuestion | null {
       // no-cache headers shipped (heuristic freshness keeps old entries "fresh"
       // for days otherwise). Paired with `index.js?v=…` inside the wrapper HTML.
       // Bump both if the wrappers change again.
-      launch_url: `${cog.url}${sep}embed=1&v=2`,
+      launch_url: `${cog.url}${sep}embed=1&v=3`,
       launch_label: `Start the ${cog.title}`,
     };
   }
