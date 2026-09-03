@@ -12,8 +12,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 // the target with ESMIRA_PROXY (e.g. a local Docker container at http://localhost:8081).
 const ESMIRA = process.env.ESMIRA_PROXY || 'https://iemabot.surrey.ac.uk';
 
-// Surface the package version to the app (shown on the About ESMira screen).
-const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
+// Surface the release version to the app (shown on the About ESMira screen).
+// Read from the ROOT package.json — deploy.sh patch-bumps it on every deploy
+// (chore(release): vX.Y.Z), unlike web-pwa's own package.json which never moves.
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
 
 export default defineConfig({
   base: '/pwa/',
