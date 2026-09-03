@@ -48,7 +48,10 @@ const PORT = Number(process.env.A11Y_PORT || 4318);
 const FAIL_ON = (process.env.A11Y_FAIL_ON || 'critical,serious').split(',').map((s) => s.trim()).filter(Boolean);
 const THEMES = (process.env.A11Y_THEMES || 'light,dark').split(',').map((s) => s.trim()).filter(Boolean);
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-const BASE = (process.env.A11Y_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+// Pinned to 127.0.0.1 on BOTH sides (server bind below + browser URL): `localhost`
+// can bind IPv6-only (::1) under modern Node while headless Chromium resolves it to
+// IPv4 → connection refused → goto timeout, even though the readiness fetch passes.
+const BASE = (process.env.A11Y_BASE_URL || `http://127.0.0.1:${PORT}`).replace(/\/$/, '');
 const APP_URL = (qs = '') => `${BASE}/pwa/${qs}`;
 
 const FIXTURE = MODE === 'fixture'
@@ -116,7 +119,7 @@ async function startPreview() {
   if (process.env.A11Y_BASE_URL) { log(`▶ Using running server at ${BASE}`); return; }
   log(`▶ Starting vite preview on :${PORT} …`);
   previewExited = false;
-  preview = spawn('npm', ['run', 'preview', '--', '--port', String(PORT), '--strictPort'], {
+  preview = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: WEB_PWA,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
