@@ -1,12 +1,16 @@
 <?php
 /**
- * Retitle the live picture-description inputs (study 9727) as a "Picture
- * Description Task" card with a short pitch, per the PWA's card/modal split:
- * text BEFORE the embedded <img> renders on the chat card; the image and the
- * text AFTER it appear only inside the recorder/writing modal (PWA >= 3.6.11).
+ * Reword the live picture-description inputs (study 9727), per the PWA's
+ * card/modal split: text BEFORE the embedded <img> renders on the chat card;
+ * the image and the text AFTER it appear only inside the recorder/writing
+ * modal (PWA >= 3.6.11).
  *
- * ⚠️ Deploy the PWA with the card/modal split BEFORE applying, or the live app
- * will show pitch + image + instructions all inline on the card.
+ * Card copy deliberately does NOT reveal the picture's content (no "busy
+ * family kitchen scene" spoiler), tells participants the picture only appears
+ * once they tap the launch button (and that recording starts right away for
+ * the voice variant), and foregrounds the task: describe it to someone who
+ * cannot see it, in complete sentences. The modal keeps only a single-sentence
+ * prompt under the image — the full instructions already live on the card.
  *
  * Dry-run by default; pass `apply` to save. Run inside the container as the
  * web user (see tools/live-study/README / editing-live-study-config):
@@ -27,23 +31,22 @@ const IMG = '<img src="https://iemabot.surrey.ac.uk/pwa/cookie-theft.jpg"'
 $texts = [
     'eveningPictureDescription' =>
         '<div><b>Picture Description Task</b></div><br>'
-        . '<div>You will see a colour illustration of a busy family kitchen scene. When you are'
-        . ' ready, record a voice memo describing everything happening in it — there are no right'
-        . ' or wrong answers.</div><br>'
+        . '<div>You will see a colour illustration. The picture will only appear once you tap'
+        . ' "Record voice memo" below, and recording starts straight away. Your task is to'
+        . ' describe the picture to someone who cannot see it, speaking in complete sentences.'
+        . ' There are no right or wrong answers.</div><br>'
         . '<div>' . IMG . '</div><br>'
         . '<div>Describe everything that is happening in the picture, as though you were'
-        . ' describing it to someone who cannot see it. Please try to use complete sentences.'
-        . ' There is no right or wrong answer — just keep talking about everything you see'
-        . ' happening.</div>',
+        . ' describing it to someone who cannot see it.</div>',
     'eveningPictureDescriptionTyped' =>
         '<div><b>Picture Description Task</b></div><br>'
-        . '<div>You will see a colour illustration of a busy family kitchen scene. Please write'
-        . ' a description of everything happening in it — there are no right or wrong'
+        . '<div>You will see a colour illustration. The picture will only appear once you tap'
+        . ' "Write your answer" below. Your task is to describe the picture to someone who'
+        . ' cannot see it, writing in complete sentences. There are no right or wrong'
         . ' answers.</div><br>'
         . '<div>' . IMG . '</div><br>'
         . '<div>Write a description of everything that is happening in the picture, as though'
-        . ' you were describing it to someone who cannot see it. Please try to use complete'
-        . ' sentences. Do not worry about typos — there is no right or wrong answer.</div>',
+        . ' you were describing it to someone who cannot see it.</div>',
 ];
 
 $apply = ($argv[1] ?? '') === 'apply';
