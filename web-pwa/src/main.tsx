@@ -28,6 +28,36 @@ if ('serviceWorker' in navigator) {
     reloading = true;
     window.location.reload();
   });
+
+  // One-time cleanup of the retiring iEMAbot's ROOT-scoped service worker. That
+  // legacy SW (scope '/') serves everything under /webapp/m2c2/* CACHE-FIRST, so
+  // it shadows the cognitive-task iframe even here and pins a stale copy of the
+  // assessments (e.g. the pre-tutorial PVT) that no ?v= bump or PWA reinstall can
+  // dislodge. A server-side /sw.js kill-switch never reaches phones because this
+  // page's top-level context is /pwa/ (our SW), so the '/' registration is rarely
+  // update-checked. Running here — where getRegistrations() sees every
+  // registration on the origin — we purge its m2c2 Cache Storage (which also
+  // forces its own cache-first handler to miss → refetch live) and unregister it.
+  // Scoped strictly to pathname '/' so our /pwa/ worker and the /datadonation/
+  // app are never touched.
+  void (async () => {
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(
+        regs
+          .filter((r) => {
+            try { return new URL(r.scope).pathname === '/'; } catch { return false; }
+          })
+          .map((r) => r.unregister()),
+      );
+    } catch { /* ignore */ }
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((k) => k.startsWith('m2c2')).map((k) => caches.delete(k)));
+      }
+    } catch { /* ignore */ }
+  })();
 }
 
 const root = createRoot(document.getElementById('root')!);
