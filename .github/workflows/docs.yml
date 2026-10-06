@@ -1,7 +1,7 @@
 name: Documentation site (GitHub Pages)
 
 # Builds the Docusaurus site in website/ and publishes it to GitHub Pages:
-#   https://andreifoldes.github.io/ESMira-web/
+#   https://andreifoldes.github.io/iEMAbot/
 #
 # - Pull requests and pushes that touch website/ build the site (broken links
 #   and anchors fail the build) and scan the BUILT HTML for private details.
