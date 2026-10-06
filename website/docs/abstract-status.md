@@ -24,7 +24,7 @@ on purpose.
 | 2 | Flexible delivery via a **custom web-based interface** | <span className="status status--shipped">Shipped</span> | The installable participant PWA, see [PWA overview](./pwa/overview.md). |
 | 3 | Delivery via the **Telegram Bot API** | <span className="status status--tbc">TBC</span> | No Telegram code exists. See [Roadmap](./roadmap.md#telegram-bot-delivery). |
 | 4 | Platform-agnostic architecture, extensible to **WhatsApp / SMS** | <span className="status status--tbc">TBC</span> | No channel-adapter layer. Web Push is the only server-initiated channel. See [Roadmap](./roadmap.md#additional-delivery-channels-whatsapp-sms). |
-| 5 | Passive data from **Withings, Fitbit, Oura** via **OAuth 2.0** | <span className="status status--shipped">Shipped</span> | Full authorization-code flow, encrypted token store, hourly sync, CSV export. See [Wearables](./backend/wearables.md). |
+| 5 | Passive data from **Withings and Fitbit** via **OAuth 2.0** | <span className="status status--shipped">Shipped</span> | Full authorization-code flow, encrypted token store, hourly sync, CSV export. See [Wearables](./backend/wearables.md). |
 | 6 | …used to **trigger or contextualize prompts in real time** | <span className="status status--tbc">TBC</span> | Wearable data is stored for researchers only. No code reads it to schedule or tailor a prompt; sync is hourly and lags by a day. See [Roadmap](./roadmap.md#wearable-triggered-and-contextualised-prompts). |
 | 7 | Deployable on low-spec VPS for **under €10/month** | <span className="status status--partial">Partial</span> | One Docker container (PHP 8.3 + Apache), flat files, no database server, two cron jobs. No resource benchmarks or cost breakdown have been measured, so the € figure is unverified. See [Docker and cron](./deployment/docker-and-cron.md). |
 | 8 | **Self-hosted**, full data control | <span className="status status--shipped">Shipped</span> | All data lives in a mounted volume on your server. Two third-party hops exist by design (browser push services; wearable provider APIs). See [Data and privacy](./backend/data-and-privacy.md). |
@@ -40,7 +40,6 @@ on purpose.
 | 18 | Engagement for **older / cognitively vulnerable** users | <span className="status status--partial">Partial</span> | Chat-style one-question-per-screen UI, text-size and contrast settings, image lightbox, automated WCAG 2.2 audit. No manual screen-reader pass and no usability study are documented. See [Accessibility](./pwa/accessibility.md). |
 | 19 | **Dyadic EMA** (participant + caregiver) | <span className="status status--tbc">TBC</span> | No dyad/caregiver linking exists in the code. ESMira's random-group feature is unrelated. See [Roadmap](./roadmap.md#dyadic-ema). |
 | 20 | **Openly documented**, designed for community extension | <span className="status status--partial">Partial</span> | This site is the first documentation. Upstream's plugin API is present; the fork has no contributor guide and no stable extension API of its own. |
-| 21 | Proof-of-concept study | <span className="status status--tbc">TBC</span> | Not a software feature; no study results or protocol are documented here. |
 
 ## Detail on the partial and TBC rows
 
