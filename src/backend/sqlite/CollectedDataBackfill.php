@@ -210,26 +210,39 @@ class CollectedDataBackfill {
 		$file = PathsFS::filePushEvents($studyId);
 		if(!is_file($file))
 			return;
-		$lines = (function() use ($file) {
-			$handle = fopen($file, 'r');
-			if(!$handle)
-				return;
-			try {
-				while(($line = fgets($handle)) !== false)
-					yield $line;
-			}
-			finally {
-				fclose($handle);
-			}
-		})();
-		$this->counts['push_events'] += $this->inChunks($lines, function(string $line) use ($studyId): int {
+		// Identical events (same user, event, millisecond) are real: one per push subscription. Count
+		// the occurrences in the file and insert only those the database does not have yet, which keeps
+		// the import idempotent and compatible with rows written live in the meantime.
+		$wanted = [];
+		foreach($this->readLines($file) as $line) {
 			$row = json_decode($line, true);
 			if(!is_array($row) || !isset($row['e'], $row['t']))
-				return 0;
-			return CollectedDataDb::insertPushEvent(
-				$this->pdo, $studyId, (string) ($row['u'] ?? ''), (string) $row['e'], (int) $row['t']
-			);
+				continue;
+			$key = json_encode([(string) ($row['u'] ?? ''), (string) $row['e'], (int) $row['t']]);
+			$wanted[$key] = ($wanted[$key] ?? 0) + 1;
+		}
+		$this->counts['push_events'] += $this->inChunks(array_keys($wanted), function(string $key) use ($studyId, $wanted): int {
+			[$userId, $event, $time] = json_decode($key, true);
+			$missing = $wanted[$key] - CollectedDataDb::countPushEvents($this->pdo, $studyId, $userId, $event, $time);
+			$inserted = 0;
+			for($i = 0; $i < $missing; $i++)
+				$inserted += CollectedDataDb::insertPushEvent($this->pdo, $studyId, $userId, $event, $time);
+			return $inserted;
 		});
+	}
+
+	/** @return \Generator<int, string> */
+	private function readLines(string $file): \Generator {
+		$handle = fopen($file, 'r');
+		if(!$handle)
+			return;
+		try {
+			while(($line = fgets($handle)) !== false)
+				yield $line;
+		}
+		finally {
+			fclose($handle);
+		}
 	}
 
 	private function importClientInfo(int $studyId): void {

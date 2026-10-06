@@ -24,7 +24,7 @@ use Throwable;
  */
 class CollectedDataDb {
 	const FILENAME = 'iemabot.sqlite';
-	const SCHEMA_VERSION = 1;
+	const SCHEMA_VERSION = 2;
 
 	const KIND_QUESTIONNAIRE = 'questionnaire';
 	const KIND_EVENT = 'event';
@@ -298,11 +298,22 @@ class CollectedDataDb {
 	}
 
 	public static function insertPushEvent(PDO $pdo, int $studyId, string $userId, string $event, int $timeMs): int {
+		// One statement, so the next sequence number cannot race with another request.
 		$stmt = $pdo->prepare(
-			'INSERT OR IGNORE INTO push_events (study_id, user_id, event, event_time) VALUES (?, ?, ?, ?)'
+			'INSERT OR IGNORE INTO push_events (study_id, user_id, event, event_time, seq)
+			 SELECT :study, :user, :event, :time, COALESCE(MAX(seq) + 1, 0) FROM push_events
+			 WHERE study_id = :study AND user_id = :user AND event = :event AND event_time = :time'
+		);
+		$stmt->execute([':study' => $studyId, ':user' => $userId, ':event' => $event, ':time' => $timeMs]);
+		return $stmt->rowCount();
+	}
+
+	public static function countPushEvents(PDO $pdo, int $studyId, string $userId, string $event, int $timeMs): int {
+		$stmt = $pdo->prepare(
+			'SELECT COUNT(*) FROM push_events WHERE study_id = ? AND user_id = ? AND event = ? AND event_time = ?'
 		);
 		$stmt->execute([$studyId, $userId, $event, $timeMs]);
-		return $stmt->rowCount();
+		return (int) $stmt->fetchColumn();
 	}
 
 	public static function saveClientInfo(int $studyId, string $userId, bool $installed, string $device, int $updatedMs): bool {
