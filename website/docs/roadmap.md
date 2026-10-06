@@ -109,7 +109,7 @@ These are verified defects or limitations rather than abstract promises:
 | Welcome-push outcome not recorded | `push_event.php` accepts `welcome_confirmed` / `welcome_missed`, but `PushEvents` only persists `sent`, `failed`, `received`, `clicked`, so these never reach the researcher panel. |
 | Once-per-day limit is client-enforced | `completableOncePerDay` is enforced by the PWA and its service worker, not rejected by the server's dataset ingest. |
 | Wearable provider list edge case | An empty `wearablesProviders` list means "all allowed" to the server but "none offered" to the PWA. |
-| No provider-side token revocation | Disconnecting deletes local token, data and cursor, but does not revoke the token at Fitbit/Withings/Oura. |
+| No provider-side token revocation | Disconnecting deletes local token, data and cursor, but does not revoke the token at Fitbit or Withings. |
 | Data-type selector has no UI | `wearablesDataTypes` can only be set by editing the study source. |
 | `maxLength` / `minLength` have no designer field | They exist on inputs but are only settable via the study source. |
 | Appearance settings do not persist | Dark mode, contrast and text size reset on reload (in-memory state). |

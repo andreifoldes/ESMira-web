@@ -27,7 +27,7 @@ Everything is a file under the data folder, on your server; see [storage layout]
 | Party | What is sent |
 | --- | --- |
 | Browser push services (FCM, Mozilla, Apple) | Encrypted push payloads containing the study or questionnaire title and a short body. |
-| Fitbit / Withings / Oura | OAuth exchange and API pulls, server to provider. |
+| Fitbit / Withings | OAuth exchange and API pulls, server to provider. |
 | Google Fonts | The PWA's service worker fetches the Inter font. |
 
 ## Transport security

@@ -1,7 +1,7 @@
 ---
 title: "Wearables"
 sidebar_label: "Wearables"
-description: "Fitbit, Withings and Oura linking over OAuth 2.0, token storage, sync schedule, stored data, and the limits of what the data is used for."
+description: "Fitbit and Withings linking over OAuth 2.0, token storage, sync schedule, stored data, and the limits of what the data is used for."
 ---
 
 # Wearables
@@ -24,7 +24,6 @@ typically a day old. See [Roadmap](../roadmap.md#wearable-triggered-and-contextu
 | --- | --- |
 | **Fitbit** | activity (steps; 1-minute intraday with a daily fallback on HTTP 403), heart rate, sleep, weight, SpO₂, HRV, breathing rate |
 | **Withings** | weight, blood pressure, activity, sleep (summary), ECG |
-| **Oura** | daily sleep, daily activity, daily readiness, daily SpO₂, detailed sleep, heart rate, workouts |
 
 `Study.wearablesDataTypes` can narrow the list, but **no designer UI sets it**; use the study source. If it is
 empty, or does not intersect the provider's list, the provider defaults apply.
@@ -35,7 +34,7 @@ Credentials are server-wide, set with the CLI:
 
 ```bash
 php cli/wearables_setup.php genkey                                  # token-encryption key
-php cli/wearables_setup.php <fitbit|withings|oura> <client_id> <client_secret> [redirect_uri]
+php cli/wearables_setup.php <fitbit|withings> <client_id> <client_secret> [redirect_uri]
 ```
 
 | Config key | Purpose |
@@ -54,7 +53,7 @@ URI to register with each provider.
 sequenceDiagram
   participant P as PWA
   participant S as ESMira server
-  participant W as Provider (Fitbit / Withings / Oura)
+  participant W as Provider (Fitbit / Withings)
   P->>S: POST wearables_connect.php (userId, studyId, provider)
   S->>S: validate study, provider credentials, wearablesEnabled
   S->>S: create single-use state (10 min TTL) in .wearables_states/
@@ -71,8 +70,8 @@ sequenceDiagram
   single-use. It is **not bound to a browser cookie** and **PKCE is not used**.
 - Scopes are requested together, not per data type: Withings `user.info,user.metrics,user.activity,user.sleepevents`;
   Fitbit `activity heartrate sleep weight profile settings oxygen_saturation respiratory_rate temperature
-  nutrition`; Oura `daily heartrate workout session personal spo2 tag`.
-- All three authorization URLs send `prompt=login`.
+  nutrition`.
+- Both authorization URLs send `prompt=login`.
 
 ## Token storage
 
@@ -83,7 +82,7 @@ One file per study, participant and provider:
 - **Fallback:** if the `sodium` extension or key is missing, tokens are stored as `p0:` + **plaintext JSON**.
   The Docker image installs `sodium`, and `genkey` creates the key.
 - Tokens refresh when under 5 minutes remain; the new refresh token is written immediately because Withings
-  and Oura refresh tokens are single-use.
+  refresh tokens are single-use.
 - The **client secret** and the token key are stored in plaintext in the server config file.
 
 ## Sync

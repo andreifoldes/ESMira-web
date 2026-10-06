@@ -56,7 +56,7 @@ Upstream's participant UI is a Mithril web client with no scheduling. The fork a
 | --- | --- | --- |
 | Web Push with VAPID: subscribe, schedule, send, analytics | <span className="status status--shipped">Shipped</span> | [Web Push](./backend/web-push.md) |
 | Reminder suppression for already-completed surveys | <span className="status status--shipped">Shipped</span> | [Web Push](./backend/web-push.md#suppressing-reminders) |
-| Wearables: Fitbit, Withings, Oura over OAuth 2.0 | <span className="status status--shipped">Shipped</span> | [Wearables](./backend/wearables.md) |
+| Wearables: Fitbit and Withings over OAuth 2.0 | <span className="status status--shipped">Shipped</span> | [Wearables](./backend/wearables.md) |
 | New endpoints: `push_*`, `wearables_*`, `client_info` | <span className="status status--shipped">Shipped</span> | [API reference](./backend/api-reference.md) |
 | New response type columns for keystroke capture | <span className="status status--shipped">Shipped</span> | [Study model](./backend/study-model.md) |
 | `Keystrokes` upload type in `file_uploads.php` | <span className="status status--shipped">Shipped</span> | [API reference](./backend/api-reference.md) |
