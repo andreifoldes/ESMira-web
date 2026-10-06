@@ -12,8 +12,12 @@
  *   - `macos-safari` — desktop Safari installs via File → "Add to Dock".
  *   - `android`      — Android browser without a captured prompt (e.g. Firefox);
  *                      install lives in the browser menu.
+ *   - `desktop-chromium` — desktop Chrome/Edge/Brave that CAN install but hasn't
+ *                      handed us a `beforeinstallprompt` (already installed once,
+ *                      or engagement heuristics not yet met); install lives in the
+ *                      address bar / browser menu.
  *   - `unsupported`  — desktop Firefox and others with no PWA install; the only
- *                      way forward is to open the page in Chrome or Safari.
+ *                      way forward is to open the page in Chrome, Edge or Safari.
  *
  * Renders nothing once the app is installed / launched standalone.
  *
@@ -29,7 +33,7 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-type Platform = 'native' | 'ios' | 'macos-safari' | 'android' | 'unsupported';
+type Platform = 'native' | 'ios' | 'macos-safari' | 'android' | 'desktop-chromium' | 'unsupported';
 
 function isStandalone(): boolean {
   return (
@@ -67,6 +71,15 @@ function isAndroid(): boolean {
   return /android/i.test(navigator.userAgent);
 }
 
+/** Desktop Chromium (Chrome/Edge/Brave/Opera) that can install PWAs but hasn't
+ *  handed us a `beforeinstallprompt` — e.g. the app is already installed, or
+ *  Chrome's engagement heuristics haven't fired yet. iOS and Android are ruled
+ *  out by classify()'s ordering before this runs, so a Chromium UA here is
+ *  desktop; it should get real install guidance, not the "can't install" dead end. */
+function isDesktopChromium(): boolean {
+  return /Chrome|Chromium/i.test(navigator.userAgent);
+}
+
 /** Classify the current environment. A captured `beforeinstallprompt` always
  *  wins — it means the browser can install directly. */
 function classify(deferred: BeforeInstallPromptEvent | null): Platform {
@@ -74,6 +87,7 @@ function classify(deferred: BeforeInstallPromptEvent | null): Platform {
   if (isIOS()) return 'ios';
   if (isMacSafari()) return 'macos-safari';
   if (isAndroid()) return 'android';
+  if (isDesktopChromium()) return 'desktop-chromium';
   return 'unsupported';
 }
 
@@ -260,9 +274,17 @@ const INSTRUCTIONS: Record<
       'Open the app from your Home Screen, then enter your invite code.',
     ],
   },
+  'desktop-chromium': {
+    icon: Download,
+    title: 'Install this app',
+    steps: [
+      'Click the install icon (a screen with a down-arrow, or ⊕) at the right end of the address bar — or open the browser menu (⋮) and choose “Install iEMAbot…”.',
+      'Open the installed app, then enter your invite code.',
+    ],
+  },
   unsupported: {
     icon: ExternalLink,
     title: 'This browser can’t install the app',
-    steps: ['Open this page in Chrome or Safari to install the app and continue.'],
+    steps: ['Open this page in Chrome, Edge or Safari to install the app and continue.'],
   },
 };
