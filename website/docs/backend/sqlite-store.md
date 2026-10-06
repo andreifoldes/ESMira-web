@@ -27,7 +27,7 @@ upload.
 | `web_access` | Hits recorded for the no-JS study page | A web access is recorded |
 | `media` | Uploaded images, audio and keystroke logs: metadata, SHA-256 and, for files up to the size cap, the bytes in `content` | A file upload completes |
 | `participant_messages` | Messages **sent by participants** to the researchers | A message is received |
-| `push_events` | Push funnel: `sent`, `failed`, `received`, `clicked` | Each event |
+| `push_events` | Push funnel: `sent`, `failed`, `received`, `clicked`. One row per event, so a participant with several devices has several identical `sent` rows | Each event |
 | `client_info` | Latest installed-as-PWA flag and device class per participant | Each report (latest wins) |
 | `wearable_measurements` | Synced Fitbit / Withings measurements | Each hourly sync |
 

@@ -54,13 +54,16 @@ class SqliteSchema {
 			UNIQUE (study_id, media_type, filename)
 		)',
 
+		// A participant with several push subscriptions legitimately gets several identical events in
+		// the same millisecond, so `seq` numbers the occurrences instead of collapsing them.
 		'CREATE TABLE IF NOT EXISTS push_events (
 			id INTEGER PRIMARY KEY,
 			study_id INTEGER NOT NULL,
 			user_id TEXT NOT NULL,
 			event TEXT NOT NULL,
 			event_time INTEGER NOT NULL,
-			UNIQUE (study_id, user_id, event, event_time)
+			seq INTEGER NOT NULL DEFAULT 0,
+			UNIQUE (study_id, user_id, event, event_time, seq)
 		)',
 
 		'CREATE TABLE IF NOT EXISTS client_info (
@@ -100,12 +103,20 @@ class SqliteSchema {
 
 	/** Cheap on the hot path: a read-only version check; the write lock is taken only when migrating. */
 	public static function apply(PDO $pdo, int $version): void {
+		$current = 0;
 		try {
-			$current = $pdo->query("SELECT value FROM schema_meta WHERE key = 'schema_version'")->fetchColumn();
-			if($current !== false && (int) $current >= $version)
-				return;
+			$stored = $pdo->query("SELECT value FROM schema_meta WHERE key = 'schema_version'")->fetchColumn();
+			if($stored !== false)
+				$current = (int) $stored;
 		}
 		catch(\Throwable $e) { /* no schema yet */ }
+		if($current >= $version)
+			return;
+
+		// v2: push_events gained `seq`. The table is a pure copy of each study's .push_events file, so
+		// it is rebuilt from there by cli/sqlite_backfill.php rather than migrated in place.
+		if($current === 1)
+			$pdo->exec('DROP TABLE IF EXISTS push_events');
 
 		foreach(self::TABLES as $sql)
 			$pdo->exec($sql);
