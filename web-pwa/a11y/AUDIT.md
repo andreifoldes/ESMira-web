@@ -44,6 +44,16 @@ Automated gate: **0 critical / 0 serious / 0 moderate / 0 minor** across all 134
 audited states (every question type, both themes). The gate now blocks any prod
 deploy that regresses this.
 
+## Colour-vision deficiency
+
+Added after the original audit: a colour-vision-deficiency check (see `a11y/README.md`) simulates
+protanopia, deuteranopia, tritanopia and achromatopsia on the colours the browser actually paints, and
+fails the gate on colour-only indicators that clash under one of them. First run: **0 findings** across
+130 screens. The status colours (green / red / amber) are always paired with a word or icon in the
+current UI, so the check currently guards against regressions rather than reporting defects; the
+quick-action tiles (blue / green / yellow / orange) collapse under several deficiencies but each carries
+an icon and a label.
+
 ## Known limitations / future work
 
 - **Live study drift.** The gate audits an offline fixture (deterministic). Run

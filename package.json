@@ -84,6 +84,7 @@
 		"build:pwa": "cd web-pwa && npm ci && npm run build",
 		"build:all": "npm run prod && npm run build:pwa",
 		"a11y:setup": "npm --prefix web-pwa/a11y install",
-		"a11y": "node web-pwa/a11y/audit.mjs"
+		"a11y": "node web-pwa/a11y/audit.mjs",
+		"a11y:test": "npm --prefix web-pwa/a11y test"
 	}
 }
