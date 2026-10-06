@@ -52,6 +52,26 @@ Color Shapes, Symbol Search, Prices, a brief Psychomotor Vigilance Test (PVT-BA)
 The wrapper pages are served from a separate host (under `/webapp/…`); this repository holds only the
 integration.
 
+## Compatible task libraries
+
+Two companion repositories hold the task pages that iEMAbot embeds. Each task is a static page, so any of
+them can be used as the `url` of a `webapp` item. A task works inside the PWA when it posts
+`m2c2:complete` to the parent frame (see the sequence above).
+
+| Repository | Contents | Notes |
+| --- | --- | --- |
+| [`m2c2-assessments`](https://github.com/andreifoldes/m2c2-assessments) | Cognitive tasks built on [m2c2kit](https://github.com/m2c2-project/m2c2kit): PVT-BA, SART2, Color Dots, Symbol Search, Grid Memory, Color Shapes, Prices, FNAME, FNAME-Pairs, mVLT. | Every task accepts `token`, `callback_url` and `show_end_screen`. Most accept optional `webcam` and `webgazer` flags. A [URL parameter reference](https://andreifoldes.github.io/m2c2-assessments/docs/) is generated from the task source. |
+| [`novel-assessments`](https://github.com/andreifoldes/novel-assessments) | Affective Slider (pleasure × arousal, built on m2c2kit), Reflection (voice memo or free text with a keystroke-timing log) and MoodLine-OS (mood rating with cartoon faces). | Affective Slider and Reflection post `m2c2:complete`. |
+
+:::caution[MoodLine-OS is not drop-in]
+MoodLine-OS posts `NOVEL_COMPLETE` rather than `m2c2:complete`, so the PWA does not capture its result when
+it is embedded as a `webapp` item. The tasks used in the fixtures (above) are the ones verified end to end;
+check that any other task posts `m2c2:complete` before putting it in a live study.
+:::
+
+The repositories' READMEs are the source of truth for the current task list and each task's parameters;
+this page does not duplicate them.
+
 ## Cache-busting rule
 
 The wrapper chain loads `index.html?v=N` → `index.js?v=N` → `task.js?v=N`. The `v=N` value is set **in

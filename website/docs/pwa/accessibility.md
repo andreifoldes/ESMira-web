@@ -9,7 +9,7 @@ description: "The PWA's accessibility features, the automated WCAG 2.2 audit tha
 <span className="status status--partial">Partial</span> Strong automated coverage; manual assistive-technology
 testing is still to do.
 
-The abstract highlights older and cognitively vulnerable participants. The design choices below target that,
+The project targets older and cognitively vulnerable participants. The design choices below target that,
 but **no usability study with those groups is documented**.
 
 ## Design choices

@@ -7,7 +7,7 @@ description: "The container image, its PHP extensions, the two cron jobs, volume
 # Docker and cron
 
 <span className="status status--shipped">Shipped</span> · cost and capacity figures are
-<span className="status status--tbc">TBC</span> (see [Roadmap](../roadmap.md#cost-and-capacity-figures))
+<span className="status status--tbc">TBC</span> (see [Current status](../current-status.md))
 
 The fork ships as a **single container** built from the repository's `Dockerfile`. There is no separate
 database, queue or worker service: ESMira is flat-file, and the background jobs run as cron inside the same
