@@ -6,6 +6,7 @@ namespace backend\notifications;
 use backend\FileSystemBasics;
 use backend\fileSystem\PathsFS;
 use backend\Main;
+use backend\sqlite\CollectedDataDb;
 use Throwable;
 
 /**
@@ -28,8 +29,10 @@ class PushEvents {
 		if(!in_array($event, self::EVENTS, true))
 			return;
 		try {
-			$line = json_encode(['t' => Main::getMilliseconds(), 'u' => $userId, 'e' => $event]) . "\n";
+			$now = Main::getMilliseconds();
+			$line = json_encode(['t' => $now, 'u' => $userId, 'e' => $event]) . "\n";
 			@file_put_contents(PathsFS::filePushEvents($studyId), $line, FILE_APPEND | LOCK_EX);
+			CollectedDataDb::addPushEvent($studyId, $userId, $event, $now);
 		}
 		catch(Throwable $e) { /* non-fatal */ }
 	}
@@ -40,11 +43,13 @@ class PushEvents {
 			$folder = PathsFS::folderClientInfo($studyId);
 			if(!is_dir($folder))
 				FileSystemBasics::createFolder($folder, true);
+			$now = Main::getMilliseconds();
 			FileSystemBasics::writeFile(PathsFS::fileClientInfo($studyId, $userId), json_encode([
 				'installed' => $installed,
 				'device'    => $device,
-				'updated'   => Main::getMilliseconds(),
+				'updated'   => $now,
 			]));
+			CollectedDataDb::saveClientInfo($studyId, $userId, $installed, $device, $now);
 		}
 		catch(Throwable $e) { /* non-fatal */ }
 	}

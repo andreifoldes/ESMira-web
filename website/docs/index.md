@@ -74,8 +74,9 @@ flowchart TB
   PWA -->|"connect via OAuth"| API
 ```
 
-There is **no database**: studies, responses, media and tokens live as files under `esmira_data/`
-(see [Data and privacy](./backend/data-and-privacy.md)).
+There is **no database server**: studies, responses, media and tokens live as files under `esmira_data/`,
+and everything collected from participants is also written to one embedded SQLite database there
+(see [SQLite store](./backend/sqlite-store.md) and [Data and privacy](./backend/data-and-privacy.md)).
 
 ## Naming
 

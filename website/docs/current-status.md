@@ -26,7 +26,7 @@ on purpose.
 | 4 | Platform-agnostic architecture, extensible to **WhatsApp / SMS** | <span className="status status--tbc">TBC</span> | No channel-adapter layer. Web Push is the only server-initiated channel. |
 | 5 | Passive data from **Withings and Fitbit** via **OAuth 2.0** | <span className="status status--shipped">Shipped</span> | Full authorization-code flow, encrypted token store, hourly sync, CSV export. See [Wearables](./backend/wearables.md). |
 | 6 | …used to **trigger or contextualize prompts in real time** | <span className="status status--tbc">TBC</span> | Wearable data is stored for researchers only. No code reads it to schedule or tailor a prompt; sync is hourly and lags by a day. |
-| 7 | Deployable on low-spec VPS for **under €10/month** | <span className="status status--partial">Partial</span> | One Docker container (PHP 8.3 + Apache), flat files, no database server, two cron jobs. No resource benchmarks or cost breakdown have been measured, so the € figure is unverified. See [Docker and cron](./deployment/docker-and-cron.md). |
+| 7 | Deployable on low-spec VPS for **under €10/month** | <span className="status status--partial">Partial</span> | One Docker container (PHP 8.3 + Apache), flat files plus an embedded SQLite file, no database server, two cron jobs. No resource benchmarks or cost breakdown have been measured, so the € figure is unverified. See [Docker and cron](./deployment/docker-and-cron.md). |
 | 8 | **Self-hosted**, full data control | <span className="status status--shipped">Shipped</span> | All data lives in a mounted volume on your server. Two third-party hops exist by design (browser push services; wearable provider APIs). See [Data and privacy](./backend/data-and-privacy.md). |
 | 9 | **GDPR compliance** via encrypted channels | <span className="status status--partial">Partial</span> | Mechanisms exist (wearable tokens encrypted at rest; push payloads encrypted by the Web Push protocol; consent form; researcher export and study reset). HTTPS is expected from a reverse proxy but **not enforced in code**; plaintext secrets sit in the server config; compliance documentation and a DPIA are **in progress** and not yet published. See [Data and privacy](./backend/data-and-privacy.md). |
 | 10 | Web-based **management interface** for protocols | <span className="status status--shipped">Shipped</span> | ESMira's designer, plus fork-added Push and Wearables panels. See [Study model](./backend/study-model.md). |
@@ -66,7 +66,7 @@ The project claims GDPR compliance "via encrypted channels". The honest reading 
 
 | Mechanism | State |
 | --- | --- |
-| Data stays on the researcher's server | Yes (flat files in a volume). |
+| Data stays on the researcher's server | Yes (flat files and a SQLite database in a volume). |
 | Transport encryption | Delegated to the reverse proxy / Apache SSL; **not enforced** by application code. |
 | Push payload encryption | Yes, by the Web Push protocol (`minishlink/web-push`). |
 | Wearable token encryption at rest | Yes (libsodium `secretbox`), with a **plaintext fallback** if the key or extension is missing. |

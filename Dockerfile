@@ -11,6 +11,9 @@ ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/relea
 # payload encryption, and the HTTP client used to reach push services).
 # sodium encrypts stored wearable OAuth tokens at rest (backend/wearables/).
 RUN install-php-extensions zip gmp mbstring curl sodium
+# pdo_sqlite backs the collected-data database (esmira_data/iemabot.sqlite, see backend/sqlite/).
+# It is compiled into the official php image; fail the build loudly if that ever stops being true.
+RUN php -m | grep -qi '^pdo_sqlite$'
 
 #RUN apt-get update
 #RUN apt-get install -y php8.0-zip

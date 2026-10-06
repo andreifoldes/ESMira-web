@@ -16,6 +16,7 @@ const sidebars: SidebarsConfig = {
         'backend/web-push',
         'backend/wearables',
         'backend/api-reference',
+        'backend/sqlite-store',
         'backend/data-and-privacy',
       ],
     },

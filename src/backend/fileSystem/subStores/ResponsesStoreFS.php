@@ -12,6 +12,7 @@ use backend\FileSystemBasics;
 use backend\fileSystem\PathsFS;
 use backend\fileSystem\loader\StatisticsNewDataSetEntryLoader;
 use backend\FileUploader;
+use backend\sqlite\CollectedDataDb;
 use backend\subStores\ResponsesStore;
 use ZipArchive;
 
@@ -21,15 +22,16 @@ class ResponsesStoreFS implements ResponsesStore {
 			$errorCallback($datasetId, $msg);
 		}
 	}
-	private function writeDataSetFile(string $path, string $text, DataSetCacheContainer $entry, callable $successCallback, callable $errorCallback) {
+	private function writeDataSetFile(string $path, string $text, DataSetCacheContainer $entry, callable $successCallback, callable $errorCallback): bool {
 		if (file_put_contents($path, $text, FILE_APPEND | LOCK_EX)) {
 			foreach ($entry->ids as $datasetId) {
 				$successCallback($datasetId);
 			}
-		} else {
-			Main::report("Could not write to file '$path'. Sending error response to app.");
-			$this->fillDatasetErrors($entry, 'Internal Server Error: Saving failed', $errorCallback);
+			return true;
 		}
+		Main::report("Could not write to file '$path'. Sending error response to app.");
+		$this->fillDatasetErrors($entry, 'Internal Server Error: Saving failed', $errorCallback);
+		return false;
 	}
 	private function writeCsv(
 		string $path,
@@ -37,7 +39,10 @@ class ResponsesStoreFS implements ResponsesStore {
 		DataSetCacheContainer $entry,
 		string $csvSeparator,
 		callable $successCallback,
-		callable $errorCallback
+		callable $errorCallback,
+		int $studyId,
+		string $kind,
+		?int $questionnaireId
 	) {
 		if (!file_exists($path)) {
 			$this->fillDatasetErrors($entry, $noPathMessage, $errorCallback);
@@ -49,15 +54,21 @@ class ResponsesStoreFS implements ResponsesStore {
 			$writeString .= "\n" . Main::arrayToCSV($data, $csvSeparator);
 		}
 
-		$this->writeDataSetFile($path, $writeString, $entry, $successCallback, $errorCallback);
+		if ($this->writeDataSetFile($path, $writeString, $entry, $successCallback, $errorCallback)) {
+			// Mirror into the SQLite store (best-effort, never affects the acknowledgement above).
+			CollectedDataDb::addResponses($studyId, $kind, $questionnaireId, $entry->data);
+		}
 	}
 
 	public function saveWebAccessDataSet(int $studyId, int $timestamp, string $pageName, string $referer, string $userAgent): bool {
-		return file_put_contents(
+		$written = file_put_contents(
 			PathsFS::fileResponses($studyId, PathsFS::FILENAME_WEB_ACCESS),
 			"\n\"" . $timestamp . "\";\"$pageName\";\"$referer\";\"$userAgent\"",
 			FILE_APPEND | LOCK_EX
 		) !== false;
+		if ($written)
+			CollectedDataDb::addWebAccess($studyId, $timestamp, $pageName, $referer, $userAgent);
+		return $written;
 	}
 	public function saveDataSetCache(string $userId, DataSetCache $cache, callable $successProgressCallback, callable $errorProgressCallback) {
 		foreach ($cache->getStatisticsCache() as $studyId => $entry) {
@@ -80,7 +91,10 @@ class ResponsesStoreFS implements ResponsesStore {
 					$entry,
 					$csvSeparator,
 					$successProgressCallback,
-					$errorProgressCallback
+					$errorProgressCallback,
+					(int) $studyId,
+					CollectedDataDb::KIND_QUESTIONNAIRE,
+					(int) $questionnaireId
 				);
 			}
 		}
@@ -92,7 +106,10 @@ class ResponsesStoreFS implements ResponsesStore {
 				$entry,
 				$csvSeparator,
 				$successProgressCallback,
-				$errorProgressCallback
+				$errorProgressCallback,
+				(int) $studyId,
+				CollectedDataDb::KIND_EVENT,
+				null
 			);
 		}
 
@@ -123,6 +140,8 @@ class ResponsesStoreFS implements ResponsesStore {
 
 		if (!$fileUploader->upload($targetPath) || !unlink($waitingPath))
 			throw new CriticalException('Uploading failed');
+
+		CollectedDataDb::addMedia($studyId, $userId, $identifier, $targetPath);
 
 		$mediaZipPath = Paths::fileMediaZip($studyId);
 		if (file_exists($mediaZipPath))
