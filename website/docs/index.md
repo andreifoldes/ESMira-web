@@ -83,7 +83,7 @@ There is **no database**: studies, responses, media and tokens live as files und
 - **ESMira**: the engine (server, designer, data model). Kept as the engine name throughout.
 - **iEMAbot**: the participant-facing brand of this fork (PWA name, invite pages, logo).
 - **Upstream**: [`KL-Psychological-Methodology/ESMira-web`](https://github.com/KL-Psychological-Methodology/ESMira-web).
-- **Fork**: [`andreifoldes/ESMira-web`](https://github.com/andreifoldes/ESMira-web), the repository this site is built from.
+- **Fork**: [`andreifoldes/iEMAbot`](https://github.com/andreifoldes/iEMAbot), the repository this site is built from.
 
 :::note[Point-in-time facts]
 Counts and dates on these pages (commit totals, version numbers) are as of **2026-10-06**. The root

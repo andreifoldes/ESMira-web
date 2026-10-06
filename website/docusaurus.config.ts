@@ -14,13 +14,13 @@ const config: Config = {
     v4: true,
   },
 
-  // GitHub Pages project site for github.com/andreifoldes/ESMira-web
+  // GitHub Pages project site for github.com/andreifoldes/iEMAbot
   url: 'https://andreifoldes.github.io',
-  baseUrl: '/ESMira-web/',
+  baseUrl: '/iEMAbot/',
   trailingSlash: false,
 
   organizationName: 'andreifoldes',
-  projectName: 'ESMira-web',
+  projectName: 'iEMAbot',
 
   onBrokenLinks: 'throw',
   onBrokenAnchors: 'throw',
@@ -46,7 +46,7 @@ const config: Config = {
           // Docs are the site: served from the root, landing page is docs/index.md
           routeBasePath: '/',
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/andreifoldes/ESMira-web/edit/main/website/',
+          editUrl: 'https://github.com/andreifoldes/iEMAbot/edit/main/website/',
         },
         blog: false,
         theme: {
@@ -72,7 +72,7 @@ const config: Config = {
         {type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Documentation'},
         {to: '/current-status', label: 'Current status', position: 'left'},
         {
-          href: 'https://github.com/andreifoldes/ESMira-web',
+          href: 'https://github.com/andreifoldes/iEMAbot',
           label: 'GitHub (fork)',
           position: 'right',
         },
@@ -89,7 +89,7 @@ const config: Config = {
         {
           title: 'This project',
           items: [
-            {label: 'Fork repository', href: 'https://github.com/andreifoldes/ESMira-web'},
+            {label: 'Fork repository', href: 'https://github.com/andreifoldes/iEMAbot'},
             {label: 'Current status', to: '/current-status'},
             {label: 'Roadmap / TBC', to: '/roadmap'},
           ],
