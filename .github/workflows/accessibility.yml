@@ -42,8 +42,15 @@ jobs:
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
 
-      - name: Run accessibility audit (WCAG 2.2 A/AA)
+      - name: Unit-test the colour-vision-deficiency checks
         working-directory: web-pwa/a11y
+        run: npm test
+
+      - name: Run accessibility audit (WCAG 2.2 A/AA + colour-vision deficiency)
+        working-directory: web-pwa/a11y
+        env:
+          # Also save every screen as seen with each deficiency, for human review in the artifact.
+          A11Y_CVD_SHOTS: '1'
         run: node audit.mjs
 
       - name: Upload audit report

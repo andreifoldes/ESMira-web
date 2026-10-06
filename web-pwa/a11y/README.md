@@ -26,6 +26,36 @@ This is the same check that gates a production deploy (see `deploy.sh`).
 Colour-contrast is measured on the *settled* UI: the audit runs with
 `prefers-reduced-motion`, so axe never samples a mid-fade blend.
 
+## Colour-vision deficiency (WCAG 1.4.1 Use of Color)
+
+axe's contrast checks are luminance-only. On top of axe, every scanned screen goes through
+`cvd-scan.mjs`, which reads the colours the browser actually painted, simulates **protanopia,
+deuteranopia, tritanopia and achromatopsia** (Machado 2009, complete dichromacy, in `cvd.mjs`), and
+looks for **colour-only indicators**: a chromatic fill or border with no text, icon or accessible name
+of its own or in its container, whose colour is *confusable* with another chromatic colour on the same
+screen under some deficiency.
+
+- *Confusable* = clearly different to a typical viewer (CIEDE2000 ≥ 20), but close under the
+  deficiency (ΔE < 12) **and** not separable by lightness (simulated contrast < 3:1). The thresholds
+  are deliberately conservative, because a finding fails the deploy.
+- A finding is reported as `cvd-color-only` and gates like any other serious violation. Fix it by
+  adding a cue (a word, an icon, a pattern, a different lightness), or, for a deliberate exception such
+  as a bar whose *length* carries the meaning, put `data-cvd-ok="<reason>"` on the element.
+- The report also lists text/icon colours that collapse together under a deficiency (typically the
+  green/red/amber status trio). Those are **information**, not failures, while a word or icon
+  accompanies the colour; they show where a future colour-only change would break.
+
+Knobs: `A11Y_CVD=0` skips it, `A11Y_CVD_IMPACT` changes the impact it is reported at (set it to
+`moderate` to make it report-only), `A11Y_CVD_CHROMA` (default 25) is the Lab chroma above which a colour
+counts as carrying hue, and `A11Y_CVD_SHOTS=1` saves each screen as seen with each deficiency to
+`report/cvd/` for review (CI does this and uploads it with the report).
+
+Limits: complete dichromacy is the worst case, so milder anomalous trichromacy is not separately
+modelled; gradients, images and canvases are not analysed; and the "has a cue" test is a container
+heuristic, so reviewing the saved screenshots is still worthwhile. Unit tests (`npm test` here, or
+`npm run a11y:test` at the repo root) cover the colour maths against published reference values and
+prove the detector fails on a colour-only indicator.
+
 ## Run it
 
 ```bash

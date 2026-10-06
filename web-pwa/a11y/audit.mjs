@@ -29,6 +29,10 @@
  *   A11Y_FAIL_ON     comma list of impacts that fail the gate (default critical,serious)
  *   A11Y_THEMES      comma list of themes to audit (default light,dark)
  *   A11Y_LIVE_BUNDLE 1 = also walk morning/momentary/evening in every theme (slower)
+ *   A11Y_CVD         0 = skip the colour-vision-deficiency check (default on, see cvd-scan.mjs)
+ *   A11Y_CVD_IMPACT  impact assigned to colour-only findings (default serious = gates)
+ *   A11Y_CVD_SHOTS   1 = save each screen as seen with protanopia/deuteranopia/tritanopia/
+ *                    achromatopsia to report/cvd/ for human review (large; off by default)
  *   ESMIRA_PROXY     API proxy target for live mode (default from vite.config.ts)
  */
 
@@ -38,6 +42,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { collectCarriers, findColorOnlyIndicators, collapsingColorPairs, captureCvdScreenshots } from './cvd-scan.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_PWA = resolve(__dirname, '..');
@@ -47,6 +52,9 @@ const KEY = process.env.A11Y_KEY || 'ssrc';
 const PORT = Number(process.env.A11Y_PORT || 4318);
 const FAIL_ON = (process.env.A11Y_FAIL_ON || 'critical,serious').split(',').map((s) => s.trim()).filter(Boolean);
 const THEMES = (process.env.A11Y_THEMES || 'light,dark').split(',').map((s) => s.trim()).filter(Boolean);
+const CVD_ENABLED = process.env.A11Y_CVD !== '0';
+const CVD_IMPACT = process.env.A11Y_CVD_IMPACT || 'serious';
+const CVD_SHOTS = process.env.A11Y_CVD_SHOTS === '1';
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 // Pinned to 127.0.0.1 on BOTH sides (server bind below + browser URL): `localhost`
 // can bind IPv6-only (::1) under modern Node while headless Chromium resolves it to
@@ -61,6 +69,9 @@ const FIXTURE = MODE === 'fixture'
 /** All violations collected across the run: {mode,theme,screen,id,impact,help,helpUrl,nodes}. */
 const findings = [];
 const auditedScreens = [];
+/** "#a|#b" → {a, b, types:Set, themes:Set, screens:Set}: text/icon colours that collapse for some deficiency. */
+const cvdPairs = new Map();
+const cvdShotScreens = new Set();
 
 // ── tiny helpers ────────────────────────────────────────────────────────────
 const log = (...a) => console.log(...a);
@@ -103,8 +114,38 @@ async function scan(page, screen, theme) {
       })),
     });
   }
-  const crit = results.violations.filter((v) => FAIL_ON.includes(v.impact)).length;
-  log(`    · ${screen} [${theme}] — ${results.violations.length} violation(s)${crit ? `, ${crit} gating` : ''}`);
+  const cvdCount = CVD_ENABLED ? await scanColorVision(page, screen, theme) : 0;
+  const total = results.violations.length + cvdCount;
+  const crit = results.violations.filter((v) => FAIL_ON.includes(v.impact)).length
+    + (FAIL_ON.includes(CVD_IMPACT) ? cvdCount : 0);
+  log(`    · ${screen} [${theme}] — ${total} violation(s)${crit ? `, ${crit} gating` : ''}`);
+}
+
+/** Colour-vision-deficiency check for the screen on display (WCAG 1.4.1). Returns #findings added. */
+async function scanColorVision(page, screen, theme) {
+  const carriers = await collectCarriers(page);
+  const indicators = findColorOnlyIndicators(carriers);
+  if (indicators.length) {
+    findings.push({
+      mode: MODE, theme, screen,
+      id: 'cvd-color-only', impact: CVD_IMPACT,
+      help: 'A colour-only indicator is confusable with another colour for people with colour-vision deficiency',
+      helpUrl: 'https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html',
+      nodes: indicators.map((i) => ({ target: i.selector, html: i.html, summary: i.clashes.join(' | ').slice(0, 300) })),
+    });
+  }
+  for (const [key, pair] of collapsingColorPairs(carriers)) {
+    const entry = cvdPairs.get(key) || { a: pair.a, b: pair.b, types: new Set(), themes: new Set(), screens: new Set() };
+    pair.types.forEach((t) => entry.types.add(t));
+    entry.themes.add(theme);
+    entry.screens.add(screen);
+    cvdPairs.set(key, entry);
+  }
+  if (CVD_SHOTS && !cvdShotScreens.has(screen)) {
+    cvdShotScreens.add(screen);
+    await captureCvdScreenshots(page, resolve(__dirname, 'report', 'cvd'), `${screen.replace(/[^\w-]+/g, '_')}-${theme}`);
+  }
+  return indicators.length;
 }
 
 // ── preview server ──────────────────────────────────────────────────────────
@@ -367,6 +408,10 @@ function writeReport() {
     totalViolations: findings.length, gatingViolations: gating.length,
     counts: { critical: byImpact('critical').length, serious: byImpact('serious').length, moderate: byImpact('moderate').length, minor: byImpact('minor').length },
     rules: uniqRules, findings,
+    colourVision: CVD_ENABLED ? {
+      impact: CVD_IMPACT,
+      collapsingPairs: [...cvdPairs.values()].map((p) => ({ a: p.a, b: p.b, types: [...p.types], themes: [...p.themes], screens: [...p.screens] })),
+    } : null,
   };
   writeFileSync(resolve(outDir, 'a11y-report.json'), JSON.stringify(writeReport.json, null, 2));
 
@@ -385,6 +430,18 @@ function writeReport() {
   const order = { critical: 0, serious: 1, moderate: 2, minor: 3 };
   for (const [id, g] of [...grouped.entries()].sort((a, b) => order[a[1].impact] - order[b[1].impact])) {
     lines.push(`## ${g.impact.toUpperCase()} — \`${id}\``, `${g.help}  ([ref](${g.helpUrl}))`, '', ...g.hits.map((h) => `- ${h}`), '');
+  }
+  if (CVD_ENABLED) {
+    lines.push('## Colour-vision deficiency (WCAG 1.4.1)', '',
+      `Colour-only indicators that clash under a deficiency are gated as **${CVD_IMPACT}** (\`cvd-color-only\` above).`, '');
+    if (cvdPairs.size === 0) {
+      lines.push('No chromatic text/icon colours collapse together under any simulated deficiency.', '');
+    } else {
+      lines.push('These text/icon colours look alike to someone with the listed deficiency. They are **not failures** while a word or',
+        'icon accompanies the colour; they mark where a future colour-only change would break.', '',
+        '| Colour A | Colour B | Collapses under | Seen in |', '| --- | --- | --- | --- |',
+        ...[...cvdPairs.values()].map((p) => `| \`${p.a}\` | \`${p.b}\` | ${[...p.types].join(', ')} | ${p.screens.size} screen(s), ${[...p.themes].join('/')} |`), '');
+    }
   }
   writeFileSync(resolve(outDir, 'a11y-report.md'), lines.join('\n'));
   log(`\n▶ Report written to a11y/report/a11y-report.{json,md}`);
