@@ -3,7 +3,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 const sidebars: SidebarsConfig = {
   docs: [
     'index',
-    'abstract-status',
+    'current-status',
     'fork-divergence',
     {
       type: 'category',

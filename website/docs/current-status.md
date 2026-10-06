@@ -1,10 +1,10 @@
 ---
-title: "Abstract vs. reality"
-sidebar_label: "Abstract vs. reality"
+title: "Current status"
+sidebar_label: "Current status"
 description: "A claim-by-claim status of every feature promised in the iEMAbot abstract against what the code does today."
 ---
 
-# Abstract vs. reality
+# Current status
 
 This page takes each promise in the iEMAbot abstract and states, from the code, whether it is
 <span className="status status--shipped">Shipped</span>, <span className="status status--partial">Partial</span> or
@@ -28,18 +28,15 @@ on purpose.
 | 6 | …used to **trigger or contextualize prompts in real time** | <span className="status status--tbc">TBC</span> | Wearable data is stored for researchers only. No code reads it to schedule or tailor a prompt; sync is hourly and lags by a day. See [Roadmap](./roadmap.md#wearable-triggered-and-contextualised-prompts). |
 | 7 | Deployable on low-spec VPS for **under €10/month** | <span className="status status--partial">Partial</span> | One Docker container (PHP 8.3 + Apache), flat files, no database server, two cron jobs. No resource benchmarks or cost breakdown have been measured, so the € figure is unverified. See [Docker and cron](./deployment/docker-and-cron.md). |
 | 8 | **Self-hosted**, full data control | <span className="status status--shipped">Shipped</span> | All data lives in a mounted volume on your server. Two third-party hops exist by design (browser push services; wearable provider APIs). See [Data and privacy](./backend/data-and-privacy.md). |
-| 9 | **GDPR compliance** via encrypted channels | <span className="status status--partial">Partial</span> | Mechanisms exist (wearable tokens encrypted at rest; push payloads encrypted by the Web Push protocol; consent form; researcher export and study reset). HTTPS is expected from a reverse proxy but **not enforced in code**; plaintext secrets sit in the server config; no compliance documentation or DPIA exists. See [Data and privacy](./backend/data-and-privacy.md). |
+| 9 | **GDPR compliance** via encrypted channels | <span className="status status--partial">Partial</span> | Mechanisms exist (wearable tokens encrypted at rest; push payloads encrypted by the Web Push protocol; consent form; researcher export and study reset). HTTPS is expected from a reverse proxy but **not enforced in code**; plaintext secrets sit in the server config; compliance documentation and a DPIA are **in progress** and not yet published. See [Data and privacy](./backend/data-and-privacy.md). |
 | 10 | Web-based **management interface** for protocols | <span className="status status--shipped">Shipped</span> | ESMira's designer, plus fork-added Push and Wearables panels. See [Study model](./backend/study-model.md). |
-| 11 | Flexible **"if-this-then-that" scheduling** | <span className="status status--partial">Partial</span> | Time-based schedules (fixed and random signal times) are executed. Event triggers can be *configured* in the designer but are **not executed** by the server push or the PWA. See [Scheduling](./backend/scheduling.md). |
+| 11 | Flexible **"if-this-then-that" scheduling**, including **event-contingent**, **adaptive** and **wake-up-triggered** designs | <span className="status status--partial">Partial</span> | Time-based schedules (fixed and random signal times) are executed, see row 12. Event triggers can be *configured* in the designer but are **not executed** by the server push or the PWA, so event-contingent designs are designer-only. There is no adaptive scheduling logic: per-question show-if conditions branch within a questionnaire, not across prompts. There is no wake-detection code, see row 6. See [Scheduling](./backend/scheduling.md) and [Roadmap](./roadmap.md#event-contingent-execution). |
 | 12 | **Time-contingent** EMA designs | <span className="status status--shipped">Shipped</span> | Daily/weekday/day-of-month schedules, reminders, completion windows. |
-| 13 | **Event-contingent** EMA designs | <span className="status status--tbc">TBC</span> | Designer UI only, see row 11. |
-| 14 | **Adaptive** EMA designs | <span className="status status--tbc">TBC</span> | No adaptive scheduling logic. Per-question show-if conditions exist, but they branch within a questionnaire, not across prompts. |
-| 15 | **Multi-point daily sampling** for diurnal trajectories | <span className="status status--shipped">Shipped</span> | Multiple signal times per day, random windows with a minimum gap, availability windows. |
-| 16 | Surveys triggered by **wearable-detected wake-up times** | <span className="status status--tbc">TBC</span> | No wake-detection code. See row 6. |
-| 17 | Capture of **cognition** across the day | <span className="status status--shipped">Shipped</span> | Embedded cognitive tasks (iframe + `postMessage`). The task pages themselves are hosted outside this repo. See [Cognitive tasks](./pwa/cognitive-tasks.md). |
-| 18 | Engagement for **older / cognitively vulnerable** users | <span className="status status--partial">Partial</span> | Chat-style one-question-per-screen UI, text-size and contrast settings, image lightbox, automated WCAG 2.2 audit. No manual screen-reader pass and no usability study are documented. See [Accessibility](./pwa/accessibility.md). |
-| 19 | **Dyadic EMA** (participant + caregiver) | <span className="status status--tbc">TBC</span> | No dyad/caregiver linking exists in the code. ESMira's random-group feature is unrelated. See [Roadmap](./roadmap.md#dyadic-ema). |
-| 20 | **Openly documented**, designed for community extension | <span className="status status--partial">Partial</span> | This site is the first documentation. Upstream's plugin API is present; the fork has no contributor guide and no stable extension API of its own. |
+| 13 | **Multi-point daily sampling** for diurnal trajectories | <span className="status status--shipped">Shipped</span> | Multiple signal times per day, random windows with a minimum gap, availability windows. |
+| 14 | Capture of **cognition** across the day | <span className="status status--shipped">Shipped</span> | Embedded cognitive tasks (iframe + `postMessage`). The task pages themselves are hosted outside this repo. See [Cognitive tasks](./pwa/cognitive-tasks.md). |
+| 15 | Engagement for **older / cognitively vulnerable** users | <span className="status status--partial">Partial</span> | Chat-style one-question-per-screen UI, text-size and contrast settings, image lightbox, automated WCAG 2.2 audit. No manual screen-reader pass and no usability study are documented. See [Accessibility](./pwa/accessibility.md). |
+| 16 | **Dyadic EMA** (participant + caregiver) | <span className="status status--tbc">TBC</span> | No dyad/caregiver linking exists in the code. ESMira's random-group feature is unrelated. See [Roadmap](./roadmap.md#dyadic-ema). |
+| 17 | **Openly documented**, designed for community extension | <span className="status status--partial">Partial</span> | This site is the first documentation. Upstream's plugin API is present; the fork has no contributor guide and no stable extension API of its own. |
 
 ## Detail on the partial and TBC rows
 
@@ -76,7 +73,7 @@ The abstract claims GDPR compliance "via encrypted channels". The honest reading
 | Provider client secrets / VAPID private key | Stored **in plaintext** in the server config file. |
 | Informed consent | Yes, a study-level consent form is shown in the PWA. |
 | Participant-initiated deletion of response data | **No.** Participants can disconnect wearables and unsubscribe push; researchers can reset or delete a study. |
-| DPIA, retention policy, processor agreements | <span className="status status--tbc">TBC</span> |
+| DPIA, retention policy, processor agreements | <span className="status status--tbc">TBC</span> In progress; not yet published. |
 
 Compliance is a property of how a study is run, not of the software alone. This project provides
 building blocks; it does not make a legal claim. See [Data and privacy](./backend/data-and-privacy.md).

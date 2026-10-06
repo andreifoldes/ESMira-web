@@ -12,7 +12,7 @@ need to be built. No dates are committed.
 
 :::note
 This page is deliberately a set of placeholders. When a feature ships, move it into the relevant
-documentation page and flip its badge in [Abstract vs. reality](./abstract-status.md).
+documentation page and flip its badge in [Current status](./current-status.md).
 :::
 
 ## Telegram bot delivery {/* #telegram-bot-delivery */}
@@ -84,8 +84,9 @@ _Placeholder: benchmark TBC._
 ## Compliance documentation {/* #compliance-documentation */}
 
 - **Abstract:** "full data control and GDPR compliance via encrypted channels".
-- **Today:** technical mechanisms exist ([Data and privacy](./backend/data-and-privacy.md)) but there is
-  no DPIA template, retention guidance, or hardening checklist.
+- **Today:** technical mechanisms exist ([Data and privacy](./backend/data-and-privacy.md)). Compliance
+  documentation, including a DPIA, is **in progress**; a DPIA template, retention guidance and a hardening
+  checklist are not yet published.
 - **Missing:** documentation for operators, enforced HTTPS, encryption or removal of plaintext secrets in
   the server config, and a participant-initiated data-deletion path.
 
