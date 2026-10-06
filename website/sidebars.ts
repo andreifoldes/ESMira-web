@@ -1,0 +1,44 @@
+import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
+
+const sidebars: SidebarsConfig = {
+  docs: [
+    'index',
+    'abstract-status',
+    'fork-divergence',
+    {
+      type: 'category',
+      label: 'Backend (ESMira)',
+      collapsed: false,
+      items: [
+        'backend/overview',
+        'backend/study-model',
+        'backend/scheduling',
+        'backend/web-push',
+        'backend/wearables',
+        'backend/api-reference',
+        'backend/data-and-privacy',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Participant PWA',
+      collapsed: false,
+      items: [
+        'pwa/overview',
+        'pwa/participant-flow',
+        'pwa/question-types',
+        'pwa/cognitive-tasks',
+        'pwa/offline-and-uploads',
+        'pwa/accessibility',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Operations',
+      items: ['deployment/docker-and-cron', 'deployment/ci-and-release', 'deployment/security-audit'],
+    },
+    'roadmap',
+  ],
+};
+
+export default sidebars;
