@@ -88,7 +88,7 @@ There is **no general "if-this-then-that" condition builder**. The `Conditions` 
 equal/unequal/greater/less, AND/OR) is used only for chart axes, not scheduling.
 
 <span className="status status--tbc">TBC</span> Event-contingent and adaptive designs: see
-[Roadmap](../roadmap.md#event-contingent-execution).
+[Current status](../current-status.md).
 
 ## Questionnaire filters and availability windows
 

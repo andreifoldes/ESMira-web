@@ -32,16 +32,15 @@ planned.
 | <span className="status status--tbc">TBC</span> | Not implemented (or not verified). The page holds a placeholder so the gap is explicit rather than hidden. |
 
 :::info[Why the placeholders?]
-The project abstract makes several promises. Where the code does not yet back one up, this site says so
-instead of omitting it. See **[Current status](./current-status.md)** for a claim-by-claim table, and
-the **[Roadmap / TBC](./roadmap.md)** page for the open items.
+The project makes several promises. Where the code does not yet back one up, this site says so
+instead of omitting it. See **[Current status](./current-status.md)** for a claim-by-claim table.
 :::
 
 ## Where to start
 
 | If you are… | Read |
 | --- | --- |
-| Evaluating the project against the abstract | [Current status](./current-status.md) |
+| Checking the project's current status | [Current status](./current-status.md) |
 | Familiar with upstream ESMira and want the delta | [Fork divergence](./fork-divergence.md) |
 | A researcher designing a study | [Study model](./backend/study-model.md), [Scheduling](./backend/scheduling.md), [Question types](./pwa/question-types.md) |
 | Setting up reminders or wearables | [Web Push](./backend/web-push.md), [Wearables](./backend/wearables.md) |

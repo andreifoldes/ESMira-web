@@ -91,7 +91,6 @@ const config: Config = {
           items: [
             {label: 'Fork repository', href: 'https://github.com/andreifoldes/iEMAbot'},
             {label: 'Current status', to: '/current-status'},
-            {label: 'Roadmap / TBC', to: '/roadmap'},
           ],
         },
         {

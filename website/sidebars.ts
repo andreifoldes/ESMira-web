@@ -37,7 +37,6 @@ const sidebars: SidebarsConfig = {
       label: 'Operations',
       items: ['deployment/docker-and-cron', 'deployment/ci-and-release', 'deployment/security-audit'],
     },
-    'roadmap',
   ],
 };
 

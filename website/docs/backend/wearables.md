@@ -15,7 +15,7 @@ for the researcher.
 :::caution[What this feature does *not* do]
 Wearable data is **stored and exported only**. No code uses it to trigger, schedule or contextualise a
 survey, and there is no wake-up detection. The sync is hourly and fetches *completed days only*, so data is
-typically a day old. See [Roadmap](../roadmap.md#wearable-triggered-and-contextualised-prompts).
+typically a day old. See [Current status](../current-status.md).
 :::
 
 ## Providers and data
