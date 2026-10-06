@@ -17,13 +17,15 @@ basics**; fork-specific additions are flagged and have their own pages.
 | Public and admin API | `src/api/*.php` | One PHP file per endpoint; admin calls go through `admin.php?type=…`. See [API reference](./api-reference.md). |
 | Backend library | `src/backend/` | Study store, response index, permissions, CSV creation. |
 | Researcher designer | `src/frontend/ts/` | Mithril + TypeScript, built with webpack. |
-| CLI scripts | `src/cli/` | Fork-added: VAPID key generation, push sender, wearable setup and sync. |
+| CLI scripts | `src/cli/` | Fork-added: VAPID key generation, push sender, wearable setup and sync, SQLite backfill. |
 | Locales | `src/locales/` | 27 language files; Weblate-managed upstream. |
 | Participant PWA | `web-pwa/` | **Fork-only.** See [PWA overview](../pwa/overview.md). |
 
-## Storage: no database
+## Storage: files plus one SQLite database
 
-All state is stored as files below the data folder (`esmira_data/`):
+There is no database server. State is stored as files below the data folder (`esmira_data/`), and in this
+fork everything collected from participants is **also** written to a single embedded SQLite database,
+`esmira_data/iemabot.sqlite` (see [SQLite store](./sqlite-store.md)):
 
 ```text
 esmira_data/
@@ -38,6 +40,7 @@ esmira_data/
 │   ├── .client_info/           # fork: installed-vs-browser, device class
 │   ├── .wearables_tokens/      # fork: encrypted OAuth tokens
 │   └── .wearables_data/        # fork: synced measurements (CSV)
+├── iemabot.sqlite              # fork: SQLite copy of all collected participant data
 ├── .logins  .permissions  .loginToken/
 ├── errors/  legal/  snapshots/  plugins/  fallbackStudies/
 ```

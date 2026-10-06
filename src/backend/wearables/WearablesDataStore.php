@@ -7,6 +7,7 @@ use backend\Configs;
 use backend\FileSystemBasics;
 use backend\fileSystem\PathsFS;
 use backend\Main;
+use backend\sqlite\CollectedDataDb;
 
 /**
  * Append-only CSV store for fetched wearable data, one file per (study, participant,
@@ -46,7 +47,8 @@ class WearablesDataStore {
 				$now,
 			], $delimiter) . "\n";
 		}
-		file_put_contents($file, $content, FILE_APPEND | LOCK_EX);
+		if(file_put_contents($file, $content, FILE_APPEND | LOCK_EX) !== false)
+			CollectedDataDb::addWearableMeasurements($studyId, $userId, $provider, $rows, (int) $now);
 		return count($rows);
 	}
 

@@ -15,6 +15,7 @@ use backend\ResponsesIndex;
 use backend\subStores\StatisticsStoreWriter;
 use backend\subStores\StudyAccessIndexStore;
 use backend\subStores\StudyStore;
+use backend\sqlite\CollectedDataDb;
 use stdClass;
 
 require_once DIR_BASE . 'backend/responseFileKeys.php';
@@ -307,6 +308,7 @@ class StudyStoreFS extends BaseStudyStoreFS implements StudyStore
 
 	public function emptyStudy(int $studyId, array $questionnaireKeys)
 	{
+		CollectedDataDb::deleteStudyData($studyId, false);
 		FileSystemBasics::emptyFolder(PathsFS::folderResponses($studyId));
 		FileSystemBasics::emptyFolder(PathsFS::folderStatistics($studyId));
 		FileSystemBasics::emptyFolder(Paths::folderImages($studyId));
@@ -314,6 +316,8 @@ class StudyStoreFS extends BaseStudyStoreFS implements StudyStore
 		if(is_dir(Paths::folderKeystrokes($studyId))) // added after some studies were created; may not exist yet
 			FileSystemBasics::emptyFolder(Paths::folderKeystrokes($studyId));
 		FileSystemBasics::emptyFolder(PathsFS::folderPendingUploads($studyId));
+		// Again after the files are gone: an upload that raced the reset must not leave rows behind.
+		CollectedDataDb::deleteStudyData($studyId, false);
 
 		$mediaZip = Paths::fileMediaZip($studyId);
 		if (file_exists($mediaZip))
@@ -385,6 +389,7 @@ class StudyStoreFS extends BaseStudyStoreFS implements StudyStore
 		$study = $this->getStudyConfig($studyId);
 
 		BaseStudyStoreFS::delete($studyId);
+		CollectedDataDb::deleteStudyData($studyId, true);
 
 		$this->removeStudyFromPermissions($studyId);
 

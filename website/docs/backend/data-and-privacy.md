@@ -11,15 +11,18 @@ with GDPR depends on how it is run (legal basis, retention, processor agreements
 
 ## Where data lives
 
-Everything is a file under the data folder, on your server; see [storage layout](./overview.md#storage-no-database).
+Everything is a file under the data folder, on your server; see [storage layout](./overview.md#storage-files-plus-one-sqlite-database).
+Everything collected from participants is also copied into a SQLite database in the same folder; see
+[SQLite store](./sqlite-store.md).
 
 | Data | Location | Encrypted at rest |
 | --- | --- | --- |
-| Responses | `studies/<id>/responses/*.csv` | No |
-| Media (images, audio, keystroke logs) | `studies/<id>/media/` | No |
-| Wearable measurements | `studies/<id>/.wearables_data/*.csv` | No |
+| Responses | `studies/<id>/responses/*.csv`, and `responses` table of `iemabot.sqlite` | No |
+| Media (images, audio, keystroke logs) | `studies/<id>/media/`, and `media` table (bytes optional) | No |
+| Wearable measurements | `studies/<id>/.wearables_data/*.csv`, and `wearable_measurements` table | No |
 | Wearable OAuth tokens | `studies/<id>/.wearables_tokens/` | **Yes** (libsodium `secretbox`), with plaintext fallback |
 | Push subscriptions | `studies/<id>/.push_subscriptions/` | No |
+| Push funnel events, client telemetry, participant messages | files under `studies/<id>/`, and the `push_events`, `client_info`, `participant_messages` tables | No |
 | Provider client secrets, token key, VAPID private key | Server config file in `backend/config/` | **No** (plaintext, outside web root via `.htaccess`) |
 
 ## Third parties by design
@@ -51,7 +54,9 @@ localhost). The wearables redirect URI falls back to `http` if `$_SERVER['HTTPS'
 ## Researcher controls
 
 CSV, media and wearable export; study backup; **Reset study** (wipes responses, statistics, media) and
-delete study. Reset does not currently clear the wearables or push folders.
+delete study. Reset does not currently clear the wearables or push folders. Reset and delete also remove the
+matching rows from the SQLite database (Reset: responses, web access and media; Delete: everything for the
+study).
 
 ## Telemetry recorded without a separate consent step
 

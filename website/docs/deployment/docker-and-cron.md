@@ -10,16 +10,16 @@ description: "The container image, its PHP extensions, the two cron jobs, volume
 <span className="status status--tbc">TBC</span> (see [Current status](../current-status.md))
 
 The fork ships as a **single container** built from the repository's `Dockerfile`. There is no separate
-database, queue or worker service: ESMira is flat-file, and the background jobs run as cron inside the same
-container.
+database, queue or worker service: ESMira stores files plus one embedded SQLite database (see
+[SQLite store](../backend/sqlite-store.md)), and the background jobs run as cron inside the same container.
 
 ## What the image contains
 
 | Layer | Detail |
 | --- | --- |
 | Base | `php:8.3.10-apache` |
-| PHP extensions | `zip`, `gmp`, `mbstring`, `curl`, `sodium` |
-| Why | `gmp`, `mbstring`, `curl` for `minishlink/web-push` (VAPID signing, payload encryption, HTTP client); `sodium` encrypts stored wearable tokens |
+| PHP extensions | `zip`, `gmp`, `mbstring`, `curl`, `sodium`; `pdo_sqlite` (built in, asserted at build time) |
+| Why | `gmp`, `mbstring`, `curl` for `minishlink/web-push` (VAPID signing, payload encryption, HTTP client); `sodium` encrypts stored wearable tokens; `pdo_sqlite` backs the collected-data database |
 | App files | `COPY ./dist /var/www/html`, so the ESMira webpack build **and** the PWA (`dist/pwa/`) must exist before `docker build` |
 | Composer | `composer update --no-dev` in `backend/` installs web-push into `backend/vendor` |
 | Apache | `rewrite`, `md`, `ssl` modules enabled; production `php.ini` |
@@ -43,7 +43,7 @@ push job has not run for more than 180 s.
 | Mount | Holds |
 | --- | --- |
 | `backend/config/` | Server config, including VAPID keys, wearable client secrets and the token key |
-| `esmira_data/` | All studies, responses, media, tokens |
+| `esmira_data/` | All studies, responses, media, tokens, and the collected-data database `iemabot.sqlite` |
 | `/etc/apache2/sites-enabled/` | Apache vhosts |
 
 Back up `esmira_data/` **and** `backend/config/`. Losing the token key makes stored wearable tokens
@@ -59,6 +59,13 @@ php cli/wearables_setup.php fitbit <id> <secret>   # repeat per provider
 ```
 
 Then register the redirect URI shown in the study's **Wearables** panel with each provider.
+
+After the first deploy that includes the SQLite store, import the data collected before it existed (safe to
+repeat):
+
+```bash
+php cli/sqlite_backfill.php
+```
 
 ## Host requirements
 
