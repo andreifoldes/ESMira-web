@@ -69,4 +69,5 @@ reveal text, but the response does.
 
 <span className="status status--tbc">TBC</span> DPIA template, retention policy guidance, hardening
 checklist, enforced HTTPS, removal or encryption of plaintext secrets in the server config, and a
-participant-initiated data deletion path. See [Roadmap](../roadmap.md#compliance-documentation).
+participant-initiated data deletion path. Compliance documentation, including a DPIA, is **in progress**.
+See [Roadmap](../roadmap.md#compliance-documentation).
