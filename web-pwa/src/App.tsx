@@ -1619,7 +1619,7 @@ export default function App() {
                 <ol className="flex flex-col gap-2.5 text-sm">
                   {[
                     { n: 1, label: 'Install this app', active: true },
-                    { n: 2, label: 'Open it from your home screen', active: false },
+                    { n: 2, label: 'Open the installed app', active: false },
                     { n: 3, label: 'Enter your invite code', active: false },
                   ].map((s) => (
                     <li key={s.n} className={cn('flex items-center gap-2.5', s.active ? 'font-semibold text-on-surface' : 'text-on-surface-variant')}>
@@ -2567,7 +2567,7 @@ function NotificationsPanel({ perm, onEnable, onTest, testStatus, canTest }: {
       <div>
         <p className="font-semibold text-sm mb-2">If reminders aren't arriving:</p>
         <ul className="list-disc pl-5 text-sm text-on-surface-variant space-y-1.5">
-          <li>Install this app to your home screen so it can run in the background.</li>
+          <li>Install this app (add it to your home screen or Dock) so it can run in the background.</li>
           <li>Allow notifications for this site in your browser settings.</li>
           <li>Check your device's system notification settings for your browser or this app.</li>
           <li>On Android, exclude your browser from battery optimisation so reminders aren't delayed.</li>
