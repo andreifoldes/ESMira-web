@@ -70,7 +70,7 @@ const config: Config = {
       },
       items: [
         {type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Documentation'},
-        {to: '/abstract-status', label: 'Abstract vs. reality', position: 'left'},
+        {to: '/current-status', label: 'Current status', position: 'left'},
         {
           href: 'https://github.com/andreifoldes/ESMira-web',
           label: 'GitHub (fork)',
@@ -90,7 +90,7 @@ const config: Config = {
           title: 'This project',
           items: [
             {label: 'Fork repository', href: 'https://github.com/andreifoldes/ESMira-web'},
-            {label: 'Abstract vs. reality', to: '/abstract-status'},
+            {label: 'Current status', to: '/current-status'},
             {label: 'Roadmap / TBC', to: '/roadmap'},
           ],
         },

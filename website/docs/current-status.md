@@ -1,10 +1,10 @@
 ---
-title: "Abstract vs. reality"
-sidebar_label: "Abstract vs. reality"
+title: "Current status"
+sidebar_label: "Current status"
 description: "A claim-by-claim status of every feature promised in the iEMAbot abstract against what the code does today."
 ---
 
-# Abstract vs. reality
+# Current status
 
 This page takes each promise in the iEMAbot abstract and states, from the code, whether it is
 <span className="status status--shipped">Shipped</span>, <span className="status status--partial">Partial</span> or

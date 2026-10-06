@@ -12,7 +12,7 @@ need to be built. No dates are committed.
 
 :::note
 This page is deliberately a set of placeholders. When a feature ships, move it into the relevant
-documentation page and flip its badge in [Abstract vs. reality](./abstract-status.md).
+documentation page and flip its badge in [Current status](./current-status.md).
 :::
 
 ## Telegram bot delivery {/* #telegram-bot-delivery */}
