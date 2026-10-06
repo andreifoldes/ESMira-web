@@ -40,7 +40,6 @@ on purpose.
 | 18 | Engagement for **older / cognitively vulnerable** users | <span className="status status--partial">Partial</span> | Chat-style one-question-per-screen UI, text-size and contrast settings, image lightbox, automated WCAG 2.2 audit. No manual screen-reader pass and no usability study are documented. See [Accessibility](./pwa/accessibility.md). |
 | 19 | **Dyadic EMA** (participant + caregiver) | <span className="status status--tbc">TBC</span> | No dyad/caregiver linking exists in the code. ESMira's random-group feature is unrelated. See [Roadmap](./roadmap.md#dyadic-ema). |
 | 20 | **Openly documented**, designed for community extension | <span className="status status--partial">Partial</span> | This site is the first documentation. Upstream's plugin API is present; the fork has no contributor guide and no stable extension API of its own. |
-| 21 | Proof-of-concept study | <span className="status status--tbc">TBC</span> | Not a software feature; no study results or protocol are documented here. |
 
 ## Detail on the partial and TBC rows
 
