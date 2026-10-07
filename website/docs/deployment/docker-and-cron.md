@@ -78,7 +78,8 @@ php cli/sqlite_backfill.php
 
 :::note[The repo's `docker-compose.yml` is upstream's]
 It references the upstream image and has no mount for `/pwa/`. The fork's production compose file is not in
-the repository.
+the repository. To run **this** repository's image with a demo study, use `docker-compose.demo.yml` via
+[Demo and verification](./demo-and-verification.md).
 :::
 
 ## Local development

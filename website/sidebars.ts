@@ -36,7 +36,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Operations',
-      items: ['deployment/docker-and-cron', 'deployment/ci-and-release', 'deployment/security-audit'],
+      items: [
+        'deployment/docker-and-cron',
+        'deployment/demo-and-verification',
+        'deployment/ci-and-release',
+        'deployment/security-audit',
+      ],
     },
   ],
 };
