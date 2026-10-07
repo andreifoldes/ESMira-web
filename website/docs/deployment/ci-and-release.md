@@ -16,8 +16,9 @@ description: "The GitHub Actions workflows (inherited and fork-added), the deplo
 | `accessibility.yml` | release published, manual | fork | WCAG 2.2 axe audit of the PWA. See [Accessibility](../pwa/accessibility.md). |
 | `docs.yml` | `website/**` changes, manual | fork | Builds and deploys this site to GitHub Pages; scans the built HTML for private details. |
 | `security-audit.yml` | push, pull request, weekly, manual | fork | gitleaks plus the private-detail scanner. See [Security audit](./security-audit.md). |
+| `demo-smoke.yml` | manual only | fork | Builds the image, boots the demo stack and runs the server and browser smoke tests. See [Demo and verification](./demo-and-verification.md). |
 
-The new workflows use their own concurrency groups (`docs-*`, `pages`, `security-audit-*`) and never touch
+The new workflows use their own concurrency groups (`docs-*`, `pages`, `security-audit-*`, `demo-smoke-*`) and never touch
 `dist/` or `package.json`, so they cannot trigger an auto-tag.
 
 ## `deploy.sh` and `ship.sh`
