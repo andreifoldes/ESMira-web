@@ -86,9 +86,9 @@ resource group, a Basic container registry and one container instance, runs `boo
 
 ## CI
 
-`.github/workflows/demo-smoke.yml` runs `demo-up.sh` with the browser test required, on release, on demand, and on
-pull requests that touch the Dockerfile, entrypoint, demo compose file or `scripts/demo/`. See
-[CI and release](./ci-and-release.md).
+`.github/workflows/demo-smoke.yml` runs `demo-up.sh` with the browser test required. It is **manual only**: open the
+Actions tab, choose "Container demo smoke test" and press Run workflow. It is slow (image build plus a browser
+install), so it is deliberately not tied to pushes or releases. See [CI and release](./ci-and-release.md).
 
 ## Not covered
 

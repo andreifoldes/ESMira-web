@@ -5,22 +5,11 @@ name: Container demo smoke test
 # (participant PWA + researcher dashboard). Fully self-contained: no VPN, server or secrets needed.
 # See website/docs/deployment/demo-and-verification.md.
 #
-# Runs on release, on demand, and on pull requests that touch the container or the demo scripts (the files that
-# can break "docker compose up gives a working study"). It builds dist/ inside the runner only and never commits,
+# Manual only: start it from the Actions tab (Run workflow). It builds dist/ inside the runner and never commits,
 # so it cannot trigger an auto-tag.
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
-  pull_request:
-    paths:
-      - Dockerfile
-      - docker-entrypoint.sh
-      - docker-compose.demo.yml
-      - demo/**
-      - scripts/demo/**
-      - .github/workflows/demo-smoke.yml
 
 concurrency:
   group: demo-smoke-${{ github.ref }}
