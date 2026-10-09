@@ -1505,6 +1505,9 @@ export default function App() {
   }, [messages]);
   const footerActive = phase === 'name' || (phase === 'survey' && currentQuestion?.type === 'text');
   const footerPlaceholder = phase === 'name' ? 'Enter your name' : 'Type your response…';
+  // Quick actions (settings, details, contact, sign out) act on a joined study, so keep them
+  // off until an invite code has loaded one — i.e. not during install / invite-code entry.
+  const quickActionsEnabled = study !== null && phase !== 'loading' && phase !== 'error' && phase !== 'enterKey';
 
   // Submit the invite code (and participant ID, if one was typed): reload with ?key=&pid= so
   // the normal mount flow runs exactly as it would from an invite link. This is how an iOS
@@ -1968,7 +1971,8 @@ export default function App() {
           <div className="relative shrink-0">
             <button
               onClick={() => setGridMenuOpen((o) => !o)}
-              className="p-3 text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest rounded-full transition-colors"
+              disabled={!quickActionsEnabled}
+              className="p-3 text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-highest rounded-full transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
               aria-label="Quick actions"
             >
               <Grid size={20} aria-hidden="true" />
