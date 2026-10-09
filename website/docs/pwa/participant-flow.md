@@ -38,16 +38,37 @@ An invite is a URL with `?key=` (or `access_key`). Without one, the app asks for
 display mode. A `?key=` URL bypasses the gate. The point is to get participants onto the installed app,
 where push works reliably.
 
-`InstallPrompt.tsx` adapts to the browser:
+`InstallPrompt.tsx` adapts to the browser, using the detection in `lib/pwaInstall.ts`:
 
 | Situation | Guidance |
 | --- | --- |
 | Install prompt captured (Chromium) | A real **Install app** button. |
-| iOS / iPadOS Safari | Share → **Add to Home Screen**; an "open in Safari" line for iOS Chrome/Firefox/Edge. |
+| Inside an in-app browser (WhatsApp, Instagram, Facebook, Mail…) | "Open this page in your browser": **Copy link**, then open it in Safari (iOS) or *Open in Chrome* (Android). Web-views can't install a PWA. |
+| iOS / iPadOS Safari (16.4+) | Share → **Add to Home Screen**, worded for Safari. |
+| iOS / iPadOS Chrome (v113+, iOS 16.4+) | The same, worded for Chrome (Share beside the address bar → *View More*). |
+| iOS older than 16.4, Chrome older than v113, or another iOS browser | An amber alert instead of steps: update iOS / Chrome, or open the page in Safari or Chrome. The check **fails open** when a version can't be read (e.g. iPadOS posing as a Mac). |
 | macOS Safari | File → **Add to Dock**. |
 | Android without a captured prompt | Browser menu → *Install app* / *Add to Home screen*. |
 | Desktop Chromium | Address-bar install icon or menu. |
-| Unsupported (e.g. desktop Firefox) | "Open in Chrome, Edge or Safari" with a **Copy link** button. |
+| Unsupported (e.g. desktop Firefox) | "Open in Chrome, Edge or Safari", a **Copy link** button, and the QR code below. |
+
+Around that:
+
+- **Phone handoff.** On a desktop or laptop, *Use your phone instead* reveals a QR code (plus **Copy link**) so
+  the participant can carry on from their phone; it is open by default where the desktop browser can't install.
+  The QR code is a separate lazy-loaded chunk.
+- **After installing.** Once the browser reports the install finished, the install card is replaced by
+  *"Added to your Home Screen! Now open iEMAbot from there"*, step 1 of the funnel is ticked and step 2
+  becomes the active one. Installing does not turn the current tab into the app, so the participant must open
+  the installed icon. A *"Can't see the app after adding it?"* hint explains where iOS and Android put the icon.
+- **Invite code on iOS.** The iOS home-screen app starts with empty storage, so a code that arrived as a
+  `?key=` link doesn't carry over. When the notifications step sends an iOS participant to install first, the
+  code is shown ("Write this down") so they can type it into the installed app. (Android and desktop-Chromium installs
+  share storage with the browser, which restores the last working code.)
+- **Early prompt capture.** Chromium fires `beforeinstallprompt` once, early. `main.tsx` calls
+  `initInstallCapture()` before React mounts and the prompt is held at module level, so screens that mount later
+  still get the **Install app** button. The same module owns the single `standalone` check that the funnel,
+  the study load and `InstallPrompt` share.
 
 ## Consent, name and join time
 

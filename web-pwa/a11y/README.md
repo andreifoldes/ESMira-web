@@ -22,6 +22,11 @@ This is the same check that gates a production deploy (see `deploy.sh`).
   colours in day and night mode.
 - **All the app chrome**: onboarding screens, the quick-actions menu, Settings
   and its sub-panels, the Details/study-info modal, Contact, and the recorder.
+- **Every install-guidance variant** on the invite-code screen. The guidance is chosen
+  from the browser's user agent, so each flavour gets its own browser context: iOS Safari,
+  iOS Chrome, an outdated iOS (amber alert), an in-app web-view, Android with a captured
+  install prompt, and a desktop browser that can't install (with the "use your phone"
+  QR code open).
 
 Colour-contrast is measured on the *settled* UI: the audit runs with
 `prefers-reduced-motion`, so axe never samples a mid-fade blend.

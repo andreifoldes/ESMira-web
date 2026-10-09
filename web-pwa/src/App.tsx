@@ -41,6 +41,9 @@ import { SurveyInputs } from './components/SurveyInputs';
 import { AudioRecorder } from './components/AudioRecorder';
 import { KeystrokeRecorder } from './components/KeystrokeRecorder';
 import { InstallPrompt } from './components/InstallPrompt';
+import { InviteCodeNote } from './components/InviteCodeNote';
+import { isStandalone, usePwaInstall } from './lib/pwaInstall';
+import { funnelSteps } from './lib/installFunnel';
 import { ImageLightbox } from './components/ImageLightbox';
 import { WearablesPanel } from './components/WearablesPanel';
 import { saveRecording } from './lib/audioUploads';
@@ -245,16 +248,14 @@ export default function App() {
   const [serverVersion, setServerVersion] = useState(11);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState(''); // invite-code field on the enterKey screen
-  // True when the app is running as an installed PWA (home-screen / standalone) rather
-  // than a browser tab. The signup funnel (install → open → enter code) keeps the
-  // invite-code field disabled in a plain browser tab so participants set up the
+  // `standalone` is true when the app is running as an installed PWA (home-screen /
+  // standalone) rather than a browser tab. The signup funnel (install → open → enter code)
+  // keeps the invite-code field disabled in a plain browser tab so participants set up the
   // installed app first — required for reliable background notifications, especially on iOS.
-  const [standalone, setStandalone] = useState<boolean>(() =>
-    typeof window !== 'undefined' && (
-      window.matchMedia?.('(display-mode: standalone)').matches === true ||
-      (window.navigator as { standalone?: boolean }).standalone === true
-    ),
-  );
+  // `installed` flips when the browser reports the install finished while this tab is still
+  // a browser tab. Both come from the shared hook (lib/pwaInstall.ts), which also tracks
+  // display-mode changes so the funnel unlocks if the app becomes standalone in-session.
+  const { standalone, installed: justInstalled, ios: onIOS } = usePwaInstall();
 
   const [participant, setParticipant] = useState(''); // display name (username)
   const [userId, setUserId] = useState('');           // stable backend identifier
@@ -469,18 +470,6 @@ export default function App() {
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
   }, []);
-  // Track display-mode so the invite-code funnel unlocks if the app becomes standalone
-  // in-session (e.g. desktop install). A home-screen launch is a fresh load, already
-  // covered by the initial state above.
-  useEffect(() => {
-    const mq = window.matchMedia?.('(display-mode: standalone)');
-    if (!mq) return;
-    const sync = () =>
-      setStandalone(mq.matches || (window.navigator as { standalone?: boolean }).standalone === true);
-    mq.addEventListener?.('change', sync);
-    return () => mq.removeEventListener?.('change', sync);
-  }, []);
-
   // Availability of each visible questionnaire (recomputed as time/enrollment change).
   const questionnaireAvailability = useMemo(() => {
     const map = new Map<number, Availability>();
@@ -509,10 +498,7 @@ export default function App() {
     // (standalone display-mode, no URL bar) — the last code that worked, so the
     // app reopens the same study after install. In a normal browser tab we never
     // auto-restore the key: a bare /pwa/ visit should show the code-entry screen.
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as { standalone?: boolean }).standalone === true;
-    const storedKey = isStandalone ? localStorage.getItem(LAST_KEY_STORE) : null;
+    const storedKey = isStandalone() ? localStorage.getItem(LAST_KEY_STORE) : null;
     const effectiveKey = accessKey || storedKey || '';
     if (!effectiveKey) {
       // No code anywhere: ask the participant for their study invite code.
@@ -1617,15 +1603,13 @@ export default function App() {
                   </div>
                 </div>
                 <ol className="flex flex-col gap-2.5 text-sm">
-                  {[
-                    { n: 1, label: 'Install this app', active: true },
-                    { n: 2, label: 'Open the installed app', active: false },
-                    { n: 3, label: 'Enter your invite code', active: false },
-                  ].map((s) => (
-                    <li key={s.n} className={cn('flex items-center gap-2.5', s.active ? 'font-semibold text-on-surface' : 'text-on-surface-variant')}>
+                  {funnelSteps(justInstalled).map((step) => (
+                    <li key={step.n} className={cn('flex items-center gap-2.5', step.state === 'active' ? 'font-semibold text-on-surface' : 'text-on-surface-variant')}>
                       <span className={cn('flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold shrink-0',
-                        s.active ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant')}>{s.n}</span>
-                      {s.label}
+                        step.state === 'active' ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant')}>
+                        {step.state === 'done' ? <Check size={12} aria-label="Done" /> : step.n}
+                      </span>
+                      {step.label}
                     </li>
                   ))}
                 </ol>
@@ -1785,6 +1769,11 @@ export default function App() {
                   To get reminders on this device, add this app to your Home Screen first, then reopen it from there and turn on notifications.
                 </p>
                 <InstallPrompt variant="card" />
+                {/* iOS gives the installed app its own empty storage, so the invite code from
+                    this tab won't carry over — show it so they can type it in afterwards. */}
+                {onIOS && !standalone && (
+                  <InviteCodeNote code={accessKey || localStorage.getItem(LAST_KEY_STORE) || ''} />
+                )}
                 <button onClick={skipNotifications}
                   className="w-full text-on-surface-variant font-semibold py-2 rounded-full text-sm active:scale-95 transition-colors">
                   Continue without notifications

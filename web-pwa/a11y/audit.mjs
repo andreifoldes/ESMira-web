@@ -257,6 +257,63 @@ async function reachTutorial(page) {
   await present(readyBtn(page), 8000);
 }
 
+/**
+ * Audit the install guidance, which is chosen from the browser's user agent: the
+ * default headless UA only ever shows one branch, so each flavour gets its own
+ * context with a UA override — iOS Safari / Chrome / outdated iOS (amber alert) /
+ * an in-app web-view, Android with a captured install prompt, and a desktop browser
+ * that can't install, with the "use your phone" QR panel open.
+ */
+async function auditInstallScreens(browser) {
+  log(`\n▶ Auditing install screens (per-browser guidance, QR handoff)`);
+  const UA = {
+    iphoneSafari: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    iphoneOld: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Mobile/15E148 Safari/604.1',
+    iphoneChrome: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1',
+    iphoneWhatsApp: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 WhatsApp/23.20.79',
+    androidChrome: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    desktopFirefox: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0',
+  };
+  // Chromium fires `beforeinstallprompt` after load; simulate it so the native "Install app" button renders.
+  const fireInstallPrompt = () => window.addEventListener('load', () => setTimeout(() => {
+    const e = new Event('beforeinstallprompt', { cancelable: true });
+    e.prompt = async () => {};
+    e.userChoice = Promise.resolve({ outcome: 'accepted' });
+    window.dispatchEvent(e);
+  }, 50));
+  const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+  const desktop = { viewport: { width: 1100, height: 800 } };
+  const variants = [
+    { name: 'install-ios-safari', ua: UA.iphoneSafari, ...phone },
+    { name: 'install-ios-chrome', ua: UA.iphoneChrome, ...phone },
+    { name: 'install-ios-outdated', ua: UA.iphoneOld, ...phone },
+    { name: 'install-in-app-browser', ua: UA.iphoneWhatsApp, ...phone },
+    { name: 'install-android-native', ua: UA.androidChrome, init: fireInstallPrompt, ...phone },
+    {
+      name: 'install-desktop-qr', ua: UA.desktopFirefox, ...desktop,
+      prepare: async (page) => { await present(page.locator('svg[role="img"]'), 4000); },
+    },
+  ];
+  for (const v of variants) {
+    const context = await browser.newContext({
+      viewport: v.viewport, isMobile: v.isMobile, hasTouch: v.hasTouch, userAgent: v.ua,
+      reducedMotion: 'reduce', serviceWorkers: 'block',
+    });
+    try {
+      const page = await context.newPage();
+      if (v.init) await page.addInitScript(v.init);
+      await installRouting(page);
+      await gotoApp(page, '', { waitUntil: 'networkidle' });
+      await present(page.getByText('Install the app to begin'), 8000);
+      await sleep(400);
+      await v.prepare?.(page);
+      for (const theme of THEMES) await scan(page, v.name, theme);
+    } finally {
+      await context.close();
+    }
+  }
+}
+
 /** One-time audit of the onboarding screens (consent, name, notifications), each
  *  in every theme via class-toggling, then leaves the app at the tutorial. */
 async function auditOnboarding(page) {
@@ -477,6 +534,8 @@ function writeReport() {
     await gotoApp(page);
     await present(page.getByRole('button', { name: 'Continue' }), 8000);
     for (const theme of THEMES) await scan(page, 'enter-code', theme);
+
+    await auditInstallScreens(browser);
 
     await auditOnboarding(page);
 

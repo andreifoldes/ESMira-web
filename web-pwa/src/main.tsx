@@ -2,7 +2,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
+import { initInstallCapture } from './lib/pwaInstall';
 import './index.css';
+
+// Capture the native PWA install prompt as early as possible — Chrome fires
+// `beforeinstallprompt` before React mounts (and the install screens mount late),
+// so a listener added inside a component would miss it and the button never appears.
+initInstallCapture();
 
 // Register the service worker (autoUpdate: a new build activates in the background —
 // see skipWaiting/clientsClaim in sw.ts). Without the controllerchange listener below,
@@ -18,7 +24,7 @@ if ('serviceWorker' in navigator) {
   // a controllerchange ~0.4s in as the freshly-installed SW claims the page — that
   // is NOT an update, and reloading there is a spurious first-visit reload that
   // interrupts PWA installation: it discards the `beforeinstallprompt` event
-  // InstallPrompt.tsx just captured (so the install button never appears) and
+  // lib/pwaInstall.ts just captured (so the install button never appears) and
   // resets Chrome's install engagement. Guard on whether a controller already
   // existed at load so the first-install claim is ignored.
   const hadController = !!navigator.serviceWorker.controller;
