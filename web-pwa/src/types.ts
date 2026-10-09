@@ -226,6 +226,9 @@ export interface EsmiraStudy {
    *  participants. The client requests notification permission after consent and
    *  registers a push subscription; the server schedules/sends the reminders. */
   webPushEnabled?: boolean;
+  /** When true, the researcher restricted the web app to smartphones. Other devices see
+   *  an invite page with a QR code instead of the study (see lib/phoneGate.ts). */
+  webPhoneOnly?: boolean;
   /** When true, the researcher has enabled wearable data sharing. The PWA offers
    *  the intersection of `wearablesProviders` and the server's `wearableProviders`
    *  (those with OAuth credentials configured) as connectable devices. */

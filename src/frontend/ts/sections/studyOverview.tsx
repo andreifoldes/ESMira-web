@@ -1,5 +1,5 @@
 import {SectionContent} from "../site/SectionContent";
-import m, {Vnode} from "mithril";
+import m, {Vnode, VnodeDOM} from "mithril";
 import {Lang} from "../singletons/Lang";
 import {TitleRow} from "../components/TitleRow";
 import {FILE_SAVE_ACCESS} from "../constants/urls";
@@ -33,6 +33,14 @@ export class Content extends SectionContent {
 	private readonly pwaUrl: string = ""
 	private readonly inviteUrl: string = ""
 	private readonly qrDataUrl: string = ""
+	// Same code at a size meant for scanning from across a desk (opened from the "enlarge" lightbox)
+	private readonly qrLargeDataUrl: string = ""
+	// Shown to the participant to write down: the PWA asks for it after installing (iOS keeps no state)
+	private readonly accessKey: string = ""
+	private readonly invitedPid: string = ""
+	private qrEnlarged: boolean = false
+	private qrTrigger: HTMLElement | null = null
+	private qrCloseButton: HTMLElement | null = null
 	// Deterministic procedural cover, generated once when the study has no artwork of its own
 	private readonly fallbackCoverUrl: string = ""
 	private linkCopied: boolean = false
@@ -74,12 +82,18 @@ export class Content extends SectionContent {
 			const studyId = study.id.get()
 			this.pwaUrl = `${window.location.origin}/pwa/?key=${encodeURIComponent(accessKey)}&id=${studyId}`
 			// Canonical invite page URL (no hash) — used for the QR code and cross-device links
+			// A personalised link may carry the participant ID (same names and precedence as the PWA)
+			const query = new URLSearchParams(window.location.search)
+			this.invitedPid = (query.get("pid") ?? query.get("uid") ?? query.get("user_id") ?? query.get("userId") ?? "").trim()
 			this.inviteUrl = window.location.origin + window.location.pathname
+				+ (this.invitedPid ? `?pid=${encodeURIComponent(this.invitedPid)}` : "")
 
 			const qr = qrcode(0, 'M')
 			qr.addData(this.inviteUrl)
 			qr.make()
 			this.qrDataUrl = qr.createDataURL(5)
+			this.qrLargeDataUrl = qr.createDataURL(12)
+			this.accessKey = accessKey
 
 			// Studies without their own artwork get a deterministic procedural cover.
 			// Seeding by study id keeps it identical across devices and reloads.
@@ -103,6 +117,7 @@ export class Content extends SectionContent {
 	}
 
 	public destroy(): void {
+		document.removeEventListener("keydown", this.onQrKey)
 		document.body.classList.remove(HIDE_SITE_HEADER_CLASS)
 		super.destroy()
 	}
@@ -166,6 +181,7 @@ export class Content extends SectionContent {
 					{m.trust(study.postStudyNote.get())}
 				</div>
 			}
+			{this.renderQrLightbox()}
 		</div>
 	}
 
@@ -285,25 +301,91 @@ export class Content extends SectionContent {
 		</div>
 	}
 
+	private readonly onQrKey = (e: KeyboardEvent): void => {
+		if (e.key === "Escape") {
+			this.closeQr()
+			m.redraw()
+		} else if (e.key === "Tab") {
+			// The close button is the only control in the dialog: keep focus on it
+			e.preventDefault()
+			this.qrCloseButton?.focus()
+		}
+	}
+
+	private openQr(): void {
+		this.qrEnlarged = true
+		document.addEventListener("keydown", this.onQrKey)
+	}
+
+	private closeQr(): void {
+		this.qrEnlarged = false
+		document.removeEventListener("keydown", this.onQrKey)
+		this.qrTrigger?.focus()
+	}
+
+	/** Enlarged QR code on a dimmed backdrop; closes on Esc, the X, or a click outside the code. */
+	private renderQrLightbox(): Vnode<any, any> | null {
+		if (!this.qrEnlarged)
+			return null
+		return <div
+			role="dialog"
+			aria-modal="true"
+			aria-label="QR code, enlarged"
+			onclick={() => this.closeQr()}
+			style="position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;"
+		>
+			<div style="position:relative;" onclick={(e: Event) => e.stopPropagation()}>
+				<button
+					type="button"
+					aria-label="Close enlarged QR code"
+					oncreate={(v: VnodeDOM<any, any>) => {
+						this.qrCloseButton = v.dom as HTMLElement
+						this.qrCloseButton.focus()
+					}}
+					onclick={() => this.closeQr()}
+					style="position:absolute;top:-14px;right:-14px;width:40px;height:40px;border-radius:50%;border:0;background:#fff;color:#191c1e;font-size:24px;line-height:1;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.35);"
+				>×</button>
+				<img
+					alt="QR code — scan to join study"
+					src={this.qrLargeDataUrl}
+					style="display:block;width:min(88vw,480px);height:auto;background:#fff;border-radius:12px;image-rendering:pixelated;"
+				/>
+			</div>
+		</div>
+	}
+
+	/**
+	 * What the participant types into the installed app. iOS gives the installed app empty
+	 * storage, so the invite code (and a personalised link's participant ID) don't carry over.
+	 */
+	private renderWriteDown(): Vnode<any, any> | null {
+		const rows = [
+			{label: "Invite code", value: this.accessKey},
+			{label: "Participant ID", value: this.invitedPid},
+		].filter(r => r.value)
+		if (!rows.length)
+			return null
+		const valueStyle = `font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:22px;font-weight:700;letter-spacing:.06em;color:${C.onSurface};user-select:all;word-break:break-all;text-align:right;`
+		return <div style={`width:100%;box-sizing:border-box;background:${C.surfaceContainer};border-radius:12px;padding:14px 16px;`}>
+			<div style={`font-size:13px;line-height:1.5;color:${C.onSurfaceVariant};margin-bottom:8px;`}>
+				{rows.length > 1 ? "Write these down — you'll type them into the app after installing it:" : "Write this down — you'll type it into the app after installing it:"}
+			</div>
+			{rows.map(r =>
+				<div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:3px 0;">
+					<span style={`font-size:13px;color:${C.onSurfaceVariant};`}>{r.label}</span>
+					<span style={valueStyle}>{r.value}</span>
+				</div>
+			)}
+		</div>
+	}
+
+	/**
+	 * Desktop view of "How to join": what to do, the code to note, the QR code centred as the
+	 * main route (tap to enlarge), the secondary routes underneath, then a browser tip.
+	 */
 	private renderDesktopJoin(): Vnode<any, any> {
-		const rowStyle = [
-			"display:flex",
-			"gap:28px",
-			"align-items:flex-start",
-		].join(";")
-
-		const qrColStyle = [
-			"flex:0 0 auto",
-			"text-align:center",
-		].join(";")
-
-		const textColStyle = [
-			"flex:1 1 auto",
-			"display:flex",
-			"flex-direction:column",
-			"gap:16px",
-			"padding-top:4px",
-		].join(";")
+		// Studies restricted to smartphones in the editor shouldn't invite tablets
+		const device = this.getStudyOrNull()?.webPhoneOnly.get() ? "smartphone" : "smartphone or tablet"
 
 		const hintStyle = [
 			`background:${C.surfaceContainer}`,
@@ -314,21 +396,40 @@ export class Content extends SectionContent {
 			"gap:10px",
 		].join(";")
 
-		return <div style={rowStyle}>
-			<div style={qrColStyle}>
-				<img
-					alt="QR code — scan to join study"
-					src={this.qrDataUrl}
-					style="display:block;border-radius:8px;"
-				/>
-				<div style={`margin-top:10px;font-size:12px;color:${C.onSurfaceVariant};max-width:170px;line-height:1.5;`}>
-					Scan to join on your smartphone or tablet
+		const sectionLabelStyle = [
+			"width:100%",
+			"font-size:11px",
+			"font-weight:700",
+			"letter-spacing:.08em",
+			"text-transform:uppercase",
+			`color:${C.onSurfaceVariant}`,
+		].join(";")
+
+		return <div style="display:flex;flex-direction:column;align-items:center;gap:20px;">
+			<div style={`width:100%;font-size:15px;line-height:1.6;color:${C.onSurface};`}>
+				This study runs on a phone. Open this link on your <strong>{device}</strong> to install the app and join the study.
+			</div>
+
+			{this.renderWriteDown()}
+
+			<div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+				<button
+					type="button"
+					aria-label="Enlarge QR code"
+					aria-haspopup="dialog"
+					oncreate={(v: VnodeDOM<any, any>) => { this.qrTrigger = v.dom as HTMLElement }}
+					onclick={() => this.openQr()}
+					style="background:#fff;border:0;border-radius:12px;padding:6px;cursor:zoom-in;line-height:0;box-shadow:0 2px 10px rgba(25,28,30,.12);"
+				>
+					<img alt="" src={this.qrDataUrl} style="display:block;border-radius:8px;image-rendering:pixelated;" />
+				</button>
+				<div style={`font-size:13px;color:${C.onSurfaceVariant};text-align:center;line-height:1.5;`}>
+					Scan with your phone camera, or tap the code to enlarge it.
 				</div>
 			</div>
-			<div style={textColStyle}>
-				<div style={`font-size:14px;font-weight:600;color:${C.onSurface};line-height:1.5;`}>
-					Point your smartphone or tablet camera at the QR code to open the study app.
-				</div>
+
+			<div style="width:100%;display:flex;flex-direction:column;gap:12px;">
+				<div style={sectionLabelStyle}>Other ways to open it</div>
 				<div style={hintStyle}>
 					<span style="font-size:15px;flex-shrink:0;">📱</span>
 					<div style={`font-size:13px;color:${C.onSurfaceVariant};line-height:1.65;`}>
@@ -339,6 +440,10 @@ export class Content extends SectionContent {
 					</div>
 				</div>
 				{this.renderCopyLink()}
+			</div>
+
+			<div style={`font-size:12px;color:${C.onSurfaceVariant};line-height:1.55;text-align:center;`}>
+				Tip: open it in <strong>Safari</strong> or <strong>Chrome</strong> (iPhone), or <strong>Chrome</strong> (Android).
 			</div>
 		</div>
 	}

@@ -17,6 +17,8 @@ export interface FakeBrowserOptions {
   coarsePointer?: boolean;
   /** `navigator.userAgentData.mobile` (Chromium UA Client Hints). */
   uaDataMobile?: boolean;
+  /** `screen.width` / `screen.height` in CSS px (physical screen, independent of orientation). */
+  screen?: { width: number; height: number };
   href?: string;
 }
 
@@ -26,7 +28,7 @@ export interface FakeBrowser {
   restore: () => void;
 }
 
-const KEYS = ['window', 'navigator'] as const;
+const KEYS = ['window', 'navigator', 'screen'] as const;
 
 /** Install fake `window` + `navigator` globals; call `restore()` when done. */
 export function installFakeBrowser(options: FakeBrowserOptions): FakeBrowser {
@@ -54,6 +56,10 @@ export function installFakeBrowser(options: FakeBrowserOptions): FakeBrowser {
 
   Object.defineProperty(globalThis, 'window', { value: win, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'navigator', { value: navigator, configurable: true, writable: true });
+  if (options.screen) {
+    win.screen = options.screen;
+    Object.defineProperty(globalThis, 'screen', { value: options.screen, configurable: true, writable: true });
+  }
 
   return {
     window: win,

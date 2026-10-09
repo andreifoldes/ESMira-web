@@ -42,7 +42,10 @@ import { AudioRecorder } from './components/AudioRecorder';
 import { KeystrokeRecorder } from './components/KeystrokeRecorder';
 import { InstallPrompt } from './components/InstallPrompt';
 import { InviteCodeNote } from './components/InviteCodeNote';
-import { isStandalone, usePwaInstall } from './lib/pwaInstall';
+import { PhoneOnlyInvite } from './components/PhoneOnlyInvite';
+import { isMobileOrTablet, isPhone, isStandalone, usePwaInstall } from './lib/pwaInstall';
+import { handoffUrl, isPhoneGated, readPhoneOverride, setPhoneOverride } from './lib/phoneGate';
+import { enrollUrl, invitedParticipantId } from './lib/invite';
 import { funnelSteps } from './lib/installFunnel';
 import { ImageLightbox } from './components/ImageLightbox';
 import { WearablesPanel } from './components/WearablesPanel';
@@ -50,7 +53,7 @@ import { saveRecording } from './lib/audioUploads';
 import { saveKeystrokes } from './lib/keystrokeUploads';
 import type { CaptureMode } from './lib/keystrokeCapture';
 
-type Phase = 'loading' | 'error' | 'consent' | 'name' | 'notifications' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict';
+type Phase = 'loading' | 'error' | 'consent' | 'name' | 'notifications' | 'list' | 'survey' | 'tutorial' | 'tutorialOffer' | 'enterKey' | 'pid-conflict' | 'phone-only';
 
 /** localStorage key holding the last study invite code that loaded successfully,
  *  so an installed home-screen launch (which carries no ?key=) reopens it. */
@@ -248,6 +251,7 @@ export default function App() {
   const [serverVersion, setServerVersion] = useState(11);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState(''); // invite-code field on the enterKey screen
+  const [pidInput, setPidInput] = useState(''); // optional participant-ID field on the same screen
   // `standalone` is true when the app is running as an installed PWA (home-screen /
   // standalone) rather than a browser tab. The signup funnel (install → open → enter code)
   // keeps the invite-code field disabled in a plain browser tab so participants set up the
@@ -513,6 +517,17 @@ export default function App() {
         setServerVersion(serverVersion);
         setVapidKey(vapidPublicKey ?? null);
         setWearableProviders(wearableProviders ?? []);
+        // Researcher restricted this study to smartphones: show the invite page with a QR
+        // code instead. Must come before the user id, PID lock and consent below, so a
+        // computer visit leaves nothing behind that the phone would later trip over. A device
+        // that already consented here, or where the participant chose "continue here", is
+        // exempt, so switching the setting on mid-study locks nobody out.
+        const phoneGateExempt = readPhoneOverride(study.id)
+          || localStorage.getItem(`esmira_consent_${study.id}`) === '1';
+        if (isPhoneGated(study, { phone: isPhone() }, phoneGateExempt)) {
+          setPhase('phone-only');
+          return;
+        }
         // Assign/restore the stable user id (invite-link param > stored > random).
         const uid = resolveUserId(study.id, params);
         setUserId(uid);
@@ -589,6 +604,9 @@ export default function App() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // The smartphone-only invite page is read from the top: its heading and the top of the
+    // QR code would otherwise sit under the fixed header on a short laptop screen.
+    if (phase === 'phone-only') { el.scrollTo({ top: 0 }); return; }
     const behavior = reduceMotion ? ('auto' as const) : ('smooth' as const);
     // Choice lists render full-height (no nested scrollbox), so a question card can be
     // taller than the viewport (e.g. the 9-option KSS). Scrolling to the bottom would
@@ -691,7 +709,7 @@ export default function App() {
   };
   const sendContact = async () => {
     const text = contactText.trim();
-    if (!study || text.length < 2 || contactStatus === 'sending') return;
+    if (!study || !userId || text.length < 2 || contactStatus === 'sending') return;
     setContactStatus('sending');
     try {
       await sendParticipantMessage({ study, serverVersion, userId, content: text });
@@ -752,7 +770,7 @@ export default function App() {
   // ── Web push: register this device's subscription so the server can send
   //    questionnaire reminders while the app is closed. Best-effort & silent. ──
   const subscribePush = useCallback(async (): Promise<boolean> => {
-    if (!study || !vapidKey || !isPushSupported()) return false;
+    if (!study || !userId || !vapidKey || !isPushSupported()) return false;
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
     try {
       const subscription = await ensurePushSubscription(vapidKey);
@@ -961,7 +979,7 @@ export default function App() {
   }, [study, userId]);
 
   const connectWearable = async (provider: string) => {
-    if (!study) return;
+    if (!study || !userId) return;
     setWearableBusy(provider);
     try {
       const url = await startWearableConnect({ study, serverVersion, userId, provider });
@@ -1048,7 +1066,7 @@ export default function App() {
     return lines.join('\n');
   };
   const sendErrorReport = async () => {
-    if (!study || errorStatus === 'sending') return;
+    if (!study || !userId || errorStatus === 'sending') return;
     setErrorStatus('sending');
     try {
       await sendParticipantMessage({ study, serverVersion, userId, content: buildErrorReport(errorText) });
@@ -1428,6 +1446,7 @@ export default function App() {
     switch (phase) {
       case 'enterKey':
       case 'name':
+      case 'phone-only':
       case 'pid-conflict': return 'Sign up';
       case 'consent': return 'Consent';
       case 'notifications': return 'Notifications';
@@ -1487,13 +1506,15 @@ export default function App() {
   const footerActive = phase === 'name' || (phase === 'survey' && currentQuestion?.type === 'text');
   const footerPlaceholder = phase === 'name' ? 'Enter your name' : 'Type your response…';
 
-  // Submit the invite code: reload with ?key= so the normal mount flow runs (and
-  // any uid/pid in the URL is still honoured). The code is only remembered once
-  // it successfully loads a study (see the load effect).
+  // Submit the invite code (and participant ID, if one was typed): reload with ?key=&pid= so
+  // the normal mount flow runs exactly as it would from an invite link. This is how an iOS
+  // participant enrols after installing — the home-screen app starts with empty storage, so
+  // nothing the link carried survives. The code is only remembered once it successfully
+  // loads a study (see the load effect).
   const submitAccessKey = () => {
     const code = keyInput.trim();
     if (!code) return;
-    window.location.assign(`${window.location.pathname}?key=${encodeURIComponent(code)}`);
+    window.location.assign(enrollUrl(window.location.pathname, code, pidInput));
   };
 
   // ── Render ───────────────────────────────────────────────────
@@ -1524,7 +1545,7 @@ export default function App() {
             </span>
           </div>
         </div>
-        <InstallPrompt variant="compact" className="ml-2" />
+        {phase !== 'phone-only' && <InstallPrompt variant="compact" className="ml-2" />}
       </header>
 
       {/* Chat area */}
@@ -1624,7 +1645,7 @@ export default function App() {
               <div className="bg-white dark:bg-surface-container-lowest border border-slate-200 dark:border-outline-variant/30 rounded-2xl shadow-sm message-shadow p-5 flex flex-col gap-3">
                 <h2 className="text-lg font-bold text-on-surface">Enter your study invite code</h2>
                 <p className="text-sm text-on-surface-variant leading-relaxed">
-                  Ask the researcher running your study for your invite code, then enter it below to begin.
+                  Enter the invite code from your invitation, and your participant ID if you were given one, to begin.
                 </p>
                 <input
                   type="text"
@@ -1638,6 +1659,20 @@ export default function App() {
                   onKeyDown={(e) => { if (e.key === 'Enter') submitAccessKey(); }}
                   placeholder="Invite code"
                   aria-label="Study invite code"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <input
+                  type="text"
+                  inputMode="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={64}
+                  value={pidInput}
+                  onChange={(e) => setPidInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitAccessKey(); }}
+                  placeholder="Participant ID (if you were given one)"
+                  aria-label="Participant ID, if you were given one"
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-outline-variant bg-surface text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <button
@@ -1655,6 +1690,20 @@ export default function App() {
         {/* Loading */}
         {phase === 'loading' && messages.length === 0 && (
           <div className="self-center text-on-surface-variant text-sm">Loading study…</div>
+        )}
+
+        {/* Smartphone-only study opened on a computer/tablet: hand off to the phone via QR code */}
+        {phase === 'phone-only' && study && (
+          <div className="self-center w-full max-w-sm mt-4 flex flex-col gap-4">
+            <PhoneOnlyInvite
+              studyTitle={study.title}
+              url={handoffUrl(window.location.href, accessKey || localStorage.getItem(LAST_KEY_STORE) || '')}
+              code={accessKey || localStorage.getItem(LAST_KEY_STORE) || ''}
+              participantId={invitedParticipantId(params)}
+              canContinueHere={isMobileOrTablet()}
+              onContinueHere={() => { setPhoneOverride(study.id); window.location.reload(); }}
+            />
+          </div>
         )}
 
         {/* PID conflict — invite link already claimed on another device */}
@@ -1772,7 +1821,7 @@ export default function App() {
                 {/* iOS gives the installed app its own empty storage, so the invite code from
                     this tab won't carry over — show it so they can type it in afterwards. */}
                 {onIOS && !standalone && (
-                  <InviteCodeNote code={accessKey || localStorage.getItem(LAST_KEY_STORE) || ''} />
+                  <InviteCodeNote code={accessKey || localStorage.getItem(LAST_KEY_STORE) || ''} participantId={invitedParticipantId(params)} />
                 )}
                 <button onClick={skipNotifications}
                   className="w-full text-on-surface-variant font-semibold py-2 rounded-full text-sm active:scale-95 transition-colors">
@@ -1910,7 +1959,9 @@ export default function App() {
         {submitting && <div role="status" aria-live="polite" className="self-center text-on-surface-variant text-sm">Saving…</div>}
       </main>
 
-      {/* Footer */}
+      {/* Footer. Not on the smartphone-only invite page: its menu actions (contact, error report,
+          notifications, wearables) all need a participant id, which that page never creates. */}
+      {phase !== 'phone-only' && (
       <footer aria-label="Message input" className="fixed bottom-0 left-0 right-0 z-50 bg-white/85 dark:bg-surface-container-lowest/85 backdrop-blur-md rounded-t-2xl shadow-[0_-4px_12px_rgba(0,0,0,0.05)] px-4 py-3">
         <div className="flex items-center gap-2">
           {/* Quick-actions grid menu */}
@@ -1989,6 +2040,7 @@ export default function App() {
           </button>
         </div>
       </footer>
+      )}
 
       {/* Settings modal — appearance + app-level features (error report, notifications, update, about) */}
       <AnimatePresence>

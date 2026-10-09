@@ -37,6 +37,10 @@ export class Study extends DataStructure implements TranslatableRootInterface {
 	// When enabled, the participant PWA registers a web-push subscription after
 	// consent and the server sends questionnaire reminders (see api/push_subscribe.php).
 	public webPushEnabled = this.primitive<boolean>("webPushEnabled", false)
+	// When enabled, the participant PWA only runs the study on a smartphone. Computers and
+	// tablets get an invite page with a QR code to continue on a phone instead
+	// (see web-pwa/src/lib/phoneGate.ts). A convenience check in the browser, not a security measure.
+	public webPhoneOnly = this.primitive<boolean>("webPhoneOnly", false)
 	// When enabled, the participant PWA can connect a wearable (Fitbit/Withings/Oura)
 	// via OAuth and the server polls it for data (see backend/wearables/, api/wearables_*).
 	// wearablesProviders limits which providers are offered; wearablesDataTypes (empty =

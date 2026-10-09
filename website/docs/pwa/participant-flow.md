@@ -61,14 +61,49 @@ Around that:
   *"Added to your Home Screen! Now open iEMAbot from there"*, step 1 of the funnel is ticked and step 2
   becomes the active one. Installing does not turn the current tab into the app, so the participant must open
   the installed icon. A *"Can't see the app after adding it?"* hint explains where iOS and Android put the icon.
-- **Invite code on iOS.** The iOS home-screen app starts with empty storage, so a code that arrived as a
-  `?key=` link doesn't carry over. When the notifications step sends an iOS participant to install first, the
-  code is shown ("Write this down") so they can type it into the installed app. (Android and desktop-Chromium installs
-  share storage with the browser, which restores the last working code.)
+- **Invite code and participant ID on iOS.** The iOS home-screen app starts with empty storage, so a code that
+  arrived as a `?key=` link, and the participant ID of a personalised `?key=&pid=` link, don't carry over. When the
+  notifications step sends an iOS participant to install first, both are shown ("Write these down"). The installed
+  app's code-entry screen takes the invite code and an optional **Participant ID**, and sends the participant to
+  `?key=…&pid=…`, so enrolling by typing behaves exactly like opening the link. (Android and desktop-Chromium installs
+  share storage with the browser, which restores the last working code and ID.)
 - **Early prompt capture.** Chromium fires `beforeinstallprompt` once, early. `main.tsx` calls
   `initInstallCapture()` before React mounts and the prompt is held at module level, so screens that mount later
   still get the **Install app** button. The same module owns the single `standalone` check that the funnel,
   the study load and `InstallPrompt` share.
+
+### Smartphone-only studies
+
+A researcher can tick **Only allow participation on a smartphone (web)** in the study settings (the
+`webPhoneOnly` field; it needs **Web** ticked under study availability). On any other device the app does not
+start the study. It shows an **invite page** instead, laid out top to bottom as:
+
+1. what to do: this is a smartphone study, open the link on your phone;
+2. the **invite code and participant ID to write down** (see *Invite code and participant ID on iOS* above);
+3. the **QR code**, centred, for the same link (invite code and any participant ID included). Tap it to enlarge
+   it in a lightbox; Esc, the X or a tap outside closes it;
+4. **Other ways to open it**: *Copy the link to send it to yourself* and, on touch devices, *I'm on my phone,
+   continue here*;
+5. the tip *open it in Safari or Chrome (iPhone), or Chrome (Android)*.
+
+The hosted study page (`/<access key>` on the ESMira server) shows the same layout on desktop, with *On your
+phone? Tap to open directly* among the other ways, and says "smartphone" instead of "smartphone or tablet" for
+these studies.
+
+- **Nothing is recorded first.** The check runs as soon as the study loads, before the user id, the participant-ID
+  lock, consent and the join event. Scanning the code on a phone therefore starts from a clean slate and never hits
+  "already active on another device". The invite page also hides the menu, whose actions (contact, error report,
+  notifications, wearables) all need a participant id.
+- **What counts as a phone.** A touch device whose shorter physical screen edge is under 600 px (`isPhone()` in
+  `lib/pwaInstall.ts`). It reads `screen.*`, so orientation and the iOS "Request Desktop Website" mode don't matter.
+  Tablets, 7-inch tablets (Android treats 600 px as a tablet) and the inner screen of an unfolded foldable count as
+  larger devices.
+- **Escape hatch.** Touch devices that are not phones (tablets, foldables, a large phone we misread) also see
+  *I'm on my phone, continue here*. It is remembered for that study on that device. Computers never see it.
+- **Nobody is locked out mid-study.** A device that already consented to the study is never gated, so switching
+  the setting on later doesn't turn existing participants away.
+- **Off by default.** Only an explicit `true` gates, so existing studies behave as before.
+- **A convenience, not a lock.** The check runs in the participant's browser, so it protects data quality, not access.
 
 ## Consent, name and join time
 

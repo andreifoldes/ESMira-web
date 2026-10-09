@@ -198,6 +198,25 @@ export function isMobileOrTablet(): boolean {
   return false;
 }
 
+/**
+ * True on a phone specifically (not a tablet). "Phone" = a touch device whose
+ * smaller physical screen edge is under 600px: phones top out around 430px logical
+ * width, while 7-inch tablets (600px, Android's `sw600dp` cut-off) and the iPad mini
+ * (~744px) are tablets. `screen.*`
+ * (physical) is used rather than the viewport so orientation and window size don't
+ * matter, and a phone in iOS "Request Desktop Website" mode is still a phone.
+ *
+ * Fails closed when the screen can't be read; callers that gate on this should offer a
+ * "continue here" escape for touch devices (see lib/phoneGate.ts). An unfolded
+ * foldable's inner screen (~670px) counts as a tablet.
+ */
+export function isPhone(): boolean {
+  if (typeof navigator === 'undefined' || typeof screen === 'undefined') return false;
+  if (!isMobileOrTablet()) return false;
+  const minEdge = Math.min(screen.width || 0, screen.height || 0);
+  return minEdge > 0 && minEdge < 600;
+}
+
 /** Known in-app web-view signatures (social / mail apps embedding a browser). */
 const IN_APP_UA =
   /FBAN|FBAV|FB_IAB|Instagram|Line\/|Twitter|Snapchat|Pinterest|LinkedInApp|WhatsApp|MicroMessenger|WeChat|GSA\/|Outlook-|YMail/i;
@@ -267,8 +286,8 @@ export interface PwaInstall {
   /** Running inside the installed PWA (Home Screen / app-window launch). */
   standalone: boolean;
   /**
-   * The app was installed during this session (`appinstalled` fired) but we may
-   * still be in the browser tab — installing does NOT switch the current tab into
+   * The app is installed on this device — `appinstalled` fired this session, or the
+   * browser reports it was installed earlier — but we may still be in the browser tab — installing does NOT switch the current tab into
    * standalone mode. Use this to tell the user to open the installed app; do not
    * treat it as "step 1 done and we're in the app" (that's `standalone`).
    */
@@ -295,6 +314,8 @@ export interface PwaInstall {
  */
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
 let didInstall = false;
+/** The app was installed on this device before this page load (see `detectPreinstalled`). */
+let preinstalled = false;
 let captureStarted = false;
 const installListeners = new Set<() => void>();
 
@@ -302,10 +323,36 @@ function emitInstallChange(): void {
   installListeners.forEach((notify) => notify());
 }
 
+/**
+ * Ask the browser whether this origin's PWA is already installed on the device
+ * (Chromium `getInstalledRelatedApps()`; recent versions answer for same-scope web
+ * apps without a manifest `related_applications` entry). An installed app never
+ * fires `beforeinstallprompt`, so without this a returning desktop user would be told
+ * to find an install icon that Chrome has replaced with "Open in app". Resolves false
+ * when the API is missing or throws — callers then fall back to the generic guidance.
+ */
+export async function detectPreinstalled(
+  nav: { getInstalledRelatedApps?: () => Promise<unknown[]> } | undefined = typeof navigator === 'undefined'
+    ? undefined
+    : navigator,
+): Promise<boolean> {
+  if (!nav?.getInstalledRelatedApps) return false;
+  try {
+    return (await nav.getInstalledRelatedApps()).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Attach the global install listeners once. Idempotent; call at boot. */
 export function initInstallCapture(): void {
   if (captureStarted || typeof window === 'undefined') return;
   captureStarted = true;
+  void detectPreinstalled().then((found) => {
+    if (!found) return;
+    preinstalled = true;
+    emitInstallChange();
+  });
   window.addEventListener('beforeinstallprompt', (e) => {
     // Suppress Chrome's default mini-infobar so we can present our own button.
     e.preventDefault();
@@ -323,7 +370,7 @@ export function initInstallCapture(): void {
 
 /** What the capture has seen so far. */
 export function getInstallSnapshot(): { canPrompt: boolean; installed: boolean } {
-  return { canPrompt: deferredPrompt !== null, installed: didInstall };
+  return { canPrompt: deferredPrompt !== null, installed: didInstall || preinstalled };
 }
 
 /** Be told when the captured prompt / installed state changes. Returns an unsubscribe. */

@@ -122,6 +122,16 @@ export class Content extends SectionContent {
 					content:
 						<div class="vAlignCenter">
 							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(study.webPhoneOnly)} disabled={!study.publishedWeb.get()} />
+								<span>{Lang.get('web_phone_only')}</span>
+								<small>{Lang.get('web_phone_only_info')}</small>
+							</label>
+						</div>
+				}),
+				DashElement("vertical", {
+					content:
+						<div class="vAlignCenter">
+							<label class="noTitle noDesc">
 								<input type="checkbox" {...BindObservable(study.sendMessagesAllowed)} />
 								<span>{Lang.get('allow_incoming_messages')}</span>
 							</label>

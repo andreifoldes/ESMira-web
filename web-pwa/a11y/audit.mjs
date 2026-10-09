@@ -220,9 +220,13 @@ async function gotoApp(page, qs = '', opts = { waitUntil: 'domcontentloaded' }) 
 }
 
 // ── request interception (fixture mode = fully offline & deterministic) ───────
-async function installRouting(page) {
+async function installRouting(page, { phoneOnly = false } = {}) {
   if (MODE !== 'fixture') return;
-  const body = JSON.stringify(FIXTURE);
+  // `phoneOnly` mimics a researcher ticking "Only allow participation on a smartphone".
+  const fixture = phoneOnly
+    ? { ...FIXTURE, dataset: FIXTURE.dataset.map((study) => ({ ...study, webPhoneOnly: true })) }
+    : FIXTURE;
+  const body = JSON.stringify(fixture);
   await page.route('**/esmira/api/**', async (route) => {
     const url = route.request().url();
     if (url.includes('studies.php')) {
@@ -271,6 +275,7 @@ async function auditInstallScreens(browser) {
     iphoneOld: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Mobile/15E148 Safari/604.1',
     iphoneChrome: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1',
     iphoneWhatsApp: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 WhatsApp/23.20.79',
+    ipad: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
     androidChrome: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
     desktopFirefox: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0',
   };
@@ -281,6 +286,13 @@ async function auditInstallScreens(browser) {
     e.userChoice = Promise.resolve({ outcome: 'accepted' });
     window.dispatchEvent(e);
   }, 50));
+  // Pretend the page runs as an installed home-screen app: that is when the code-entry form shows.
+  const installedApp = () => {
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = (q) => /display-mode:\s*standalone/.test(q)
+      ? { matches: true, media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }
+      : real(q);
+  };
   const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
   const desktop = { viewport: { width: 1100, height: 800 } };
   const variants = [
@@ -293,18 +305,52 @@ async function auditInstallScreens(browser) {
       name: 'install-desktop-qr', ua: UA.desktopFirefox, ...desktop,
       prepare: async (page) => { await present(page.locator('svg[role="img"]'), 4000); },
     },
+    // Study restricted to smartphones: the invite page with a QR code replaces the study, on a
+    // computer and on a tablet (which also gets the "I'm on my phone — continue here" escape).
+    {
+      name: 'phone-only-invite-desktop', ua: UA.desktopFirefox, ...desktop,
+      phoneOnly: true, qs: `?key=${encodeURIComponent(KEY)}&pid=P001`, ready: 'Open this study on your phone',
+      prepare: async (page) => { await present(page.locator('svg[role="img"]'), 4000); },
+    },
+    // Code entry in the installed app: invite code plus the optional participant ID (iOS keeps no state across the install).
+    {
+      name: 'code-entry-installed-app', ua: UA.iphoneSafari, ...phone, init: installedApp,
+      ready: 'Enter your study invite code',
+      prepare: async (page) => { await present(page.getByLabel('Participant ID, if you were given one'), 2000); },
+    },
+    // The enlarged QR code (lightbox) open over the phone-only invite page.
+    {
+      name: 'phone-only-invite-qr-enlarged', ua: UA.desktopFirefox, ...desktop,
+      phoneOnly: true, qs: `?key=${encodeURIComponent(KEY)}&pid=P001`, ready: 'Open this study on your phone',
+      prepare: async (page) => {
+        await page.getByRole('button', { name: 'Enlarge QR code' }).click();
+        await present(page.getByRole('dialog', { name: 'QR code, enlarged' }), 4000);
+        await present(page.locator('[role="dialog"] svg[role="img"]'), 4000);
+      },
+    },
+    {
+      name: 'phone-only-invite-tablet', ua: UA.ipad,
+      viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true, screen: { width: 820, height: 1180 },
+      phoneOnly: true, qs: `?key=${encodeURIComponent(KEY)}&pid=P001`, ready: 'Open this study on your phone',
+      prepare: async (page) => {
+        await present(page.locator('svg[role="img"]'), 4000);
+        await present(page.getByRole('button', { name: /continue here/ }), 2000);
+      },
+    },
   ];
-  for (const v of variants) {
+  // The phone-only variants need the fixture study patched (installRouting), so skip them in live mode.
+  for (const v of variants.filter((x) => !x.phoneOnly || MODE === 'fixture')) {
     const context = await browser.newContext({
-      viewport: v.viewport, isMobile: v.isMobile, hasTouch: v.hasTouch, userAgent: v.ua,
+      viewport: v.viewport, isMobile: v.isMobile, hasTouch: v.hasTouch, userAgent: v.ua, screen: v.screen,
       reducedMotion: 'reduce', serviceWorkers: 'block',
     });
     try {
       const page = await context.newPage();
       if (v.init) await page.addInitScript(v.init);
-      await installRouting(page);
-      await gotoApp(page, '', { waitUntil: 'networkidle' });
-      await present(page.getByText('Install the app to begin'), 8000);
+      await installRouting(page, { phoneOnly: v.phoneOnly });
+      await gotoApp(page, v.qs ?? '', { waitUntil: 'networkidle' });
+      if (!(await present(page.getByText(v.ready ?? 'Install the app to begin'), 8000)))
+        throw new Error(`${v.name}: expected screen never appeared ("${v.ready ?? 'Install the app to begin'}")`);
       await sleep(400);
       await v.prepare?.(page);
       for (const theme of THEMES) await scan(page, v.name, theme);

@@ -23,6 +23,7 @@ import {
   isIOS,
   isMacSafari,
   isMobileOrTablet,
+  isPhone,
   isStandalone,
   resolveIOSSupport,
 } from './pwaInstall.ts';
@@ -250,6 +251,43 @@ describe('live environment detectors (faked window/navigator)', () => {
     browser = null;
   });
 
+  it('isPhone: phones in either orientation, and a desktop browser emulating one', () => {
+    const phones = [
+      { ua: UA.androidChrome, screen: { width: 412, height: 915 } },
+      { ua: UA.iphoneSafari164, screen: { width: 390, height: 844 } },
+      { ua: UA.iphoneSafari164, screen: { width: 844, height: 390 } }, // landscape reports swapped edges
+      { ua: UA.desktopChrome, uaDataMobile: true, screen: { width: 360, height: 800 } }, // DevTools device mode
+      { ua: UA.androidChrome, screen: { width: 599, height: 960 } }, // just under the tablet cut-off
+    ];
+    for (const options of phones) {
+      browser = installFakeBrowser(options);
+      assert.equal(isPhone(), true, JSON.stringify(options));
+      browser.restore();
+    }
+    browser = null;
+  });
+
+  it('isPhone: tablets, desktops and unreadable screens are not phones', () => {
+    const androidTablet =
+      'Mozilla/5.0 (Linux; Android 13; SM-X700) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const notPhones = [
+      { ua: UA.ipadAsMacSafari, platform: 'MacIntel', maxTouchPoints: 5, screen: { width: 820, height: 1180 } },
+      { ua: UA.ipadAsMacSafari, platform: 'MacIntel', maxTouchPoints: 5, screen: { width: 744, height: 1133 } }, // iPad mini
+      { ua: androidTablet, maxTouchPoints: 5, coarsePointer: true, screen: { width: 800, height: 1280 } },
+      { ua: UA.desktopChrome, screen: { width: 1440, height: 900 } },
+      { ua: UA.desktopFirefox, maxTouchPoints: 10, coarsePointer: false, screen: { width: 1366, height: 768 } },
+      { ua: UA.androidChrome, screen: { width: 600, height: 1024 } }, // 7-inch tablet: Android's sw600dp counts as a tablet
+      { ua: UA.iphoneSafari164 }, // no screen at all: fail closed rather than guess
+      { ua: UA.iphoneSafari164, screen: { width: 0, height: 0 } },
+    ];
+    for (const options of notPhones) {
+      browser = installFakeBrowser(options);
+      assert.equal(isPhone(), false, JSON.stringify(options));
+      browser.restore();
+    }
+    browser = null;
+  });
+
   it('isInAppBrowser: a web-view tab is flagged, the installed PWA never is', () => {
     browser = installFakeBrowser({ ua: UA.iphoneWhatsApp });
     assert.equal(isInAppBrowser(), true);
@@ -422,5 +460,23 @@ describe('install prompt capture', () => {
     unsubscribe();
     browser.window.dispatchEvent(new Event('appinstalled'));
     assert.equal(notified, 0);
+  });
+});
+
+describe('detectPreinstalled', () => {
+  it('is true when the browser reports an installed related app', async () => {
+    const { detectPreinstalled } = await freshPwaInstall();
+    assert.equal(await detectPreinstalled({ getInstalledRelatedApps: async () => [{ platform: 'webapp' }] }), true);
+  });
+
+  it('is false for an empty result, a missing API, or a rejection', async () => {
+    const { detectPreinstalled } = await freshPwaInstall();
+    assert.equal(await detectPreinstalled({ getInstalledRelatedApps: async () => [] }), false);
+    assert.equal(await detectPreinstalled({}), false);
+    assert.equal(await detectPreinstalled(undefined), false);
+    const reject = async () => {
+      throw new Error('SecurityError');
+    };
+    assert.equal(await detectPreinstalled({ getInstalledRelatedApps: reject }), false);
   });
 });

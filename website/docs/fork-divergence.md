@@ -40,6 +40,8 @@ Upstream's participant UI is a Mithril web client with no scheduling. The fork a
 | --- | --- | --- |
 | Installable chat-style PWA with offline queue | <span className="status status--shipped">Shipped</span> | [PWA overview](./pwa/overview.md) |
 | Install-first invite funnel, browser-aware install help | <span className="status status--shipped">Shipped</span> | [Participant flow](./pwa/participant-flow.md) |
+| Smartphone-only studies: study-editor setting, QR invite page with enlarge | <span className="status status--shipped">Shipped</span> | [Participant flow](./pwa/participant-flow.md#smartphone-only-studies) |
+| Participant ID next to the invite code, so iOS participants can enrol with the details from their link | <span className="status status--shipped">Shipped</span> | [Participant flow](./pwa/participant-flow.md) |
 | Availability engine (windows, once-per-day, per-notification) | <span className="status status--shipped">Shipped</span> | [Participant flow](./pwa/participant-flow.md#availability) |
 | Voice memos (`record_audio`) with review and playback | <span className="status status--shipped">Shipped</span> | [Question types](./pwa/question-types.md#voice-memos) |
 | Keystroke-dynamics typing fallback (`record_keystrokes`) | <span className="status status--shipped">Shipped</span> | [Question types](./pwa/question-types.md#keystroke-fallback) |
@@ -56,6 +58,7 @@ Upstream's participant UI is a Mithril web client with no scheduling. The fork a
 | --- | --- | --- |
 | Web Push with VAPID: subscribe, schedule, send, analytics | <span className="status status--shipped">Shipped</span> | [Web Push](./backend/web-push.md) |
 | Reminder suppression for already-completed surveys | <span className="status status--shipped">Shipped</span> | [Web Push](./backend/web-push.md#suppressing-reminders) |
+| Server statistics, and statistics of studies without an access key, need a researcher login | <span className="status status--shipped">Shipped</span> | This page |
 | Wearables: Fitbit and Withings over OAuth 2.0 | <span className="status status--shipped">Shipped</span> | [Wearables](./backend/wearables.md) |
 | New endpoints: `push_*`, `wearables_*`, `client_info` | <span className="status status--shipped">Shipped</span> | [API reference](./backend/api-reference.md) |
 | New response type columns for keystroke capture | <span className="status status--shipped">Shipped</span> | [Study model](./backend/study-model.md) |

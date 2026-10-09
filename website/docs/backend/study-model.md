@@ -31,6 +31,7 @@ form, FAQ, contact email, reward instructions).
 | Field | Purpose | Designer UI |
 | --- | --- | --- |
 | `webPushEnabled` | Turn on Web Push reminders | [Push panel](./web-push.md) |
+| `webPhoneOnly` | Run the web app on smartphones only; other devices get an invite page with a QR code | Study settings, next to study availability |
 | `wearablesEnabled`, `wearablesProviders` | Offer wearable linking, restricted to chosen providers | [Wearables panel](./wearables.md) |
 | `wearablesDataTypes` | Narrow the synced data types | **None**, source-edit only |
 | `enableTutorialMode`, `tutorialOffer`, `tutorialIntro` | Practice runs in the PWA | Study settings |

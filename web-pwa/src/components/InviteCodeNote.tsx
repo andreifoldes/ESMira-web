@@ -1,25 +1,37 @@
 import { KeyRound } from 'lucide-react';
 
 /**
- * "Write this down" card for the invite code. Installing the app on iOS gives it
- * its own empty storage, so the code from this tab's link doesn't carry over and
- * the participant has to type it into the installed app. Renders nothing when
- * there is no code to show.
+ * "Write this down" card for what the participant must type into the installed app: the
+ * invite code and, for a personalised link, the participant ID. Installing on iOS gives the
+ * app its own empty storage, so what the link carried doesn't survive the install. Renders
+ * nothing when there is nothing to show.
  */
-export function InviteCodeNote({ code }: { code: string }) {
-  if (!code) return null;
+export function InviteCodeNote({ code, participantId }: { code: string; participantId?: string }) {
+  const rows = [
+    { label: 'Invite code', value: code },
+    { label: 'Participant ID', value: participantId ?? '' },
+  ].filter((r) => r.value);
+  if (!rows.length) return null;
   return (
     <div className="w-full bg-surface-container dark:bg-surface-container-high rounded-xl p-3 text-left">
       <p className="flex items-start gap-2 text-xs text-on-surface-variant leading-relaxed">
         <KeyRound size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
-        <span>Write this down — you&apos;ll type it into the app after installing it:</span>
+        <span>
+          {rows.length > 1
+            ? "Write these down — you'll type them into the app after installing it:"
+            : "Write this down — you'll type it into the app after installing it:"}
+        </span>
       </p>
-      <p
-        className="mt-2 font-mono text-xl font-semibold tracking-wider text-on-surface break-all select-all"
-        aria-label="Your invite code"
-      >
-        {code}
-      </p>
+      <dl className="mt-2 space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline justify-between gap-4">
+            <dt className="text-xs text-on-surface-variant shrink-0">{r.label}</dt>
+            <dd className="font-mono text-xl font-semibold tracking-wider text-on-surface break-all text-right select-all">
+              {r.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
