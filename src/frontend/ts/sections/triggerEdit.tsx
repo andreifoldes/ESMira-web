@@ -7,7 +7,7 @@ import { ObservableLangChooser } from "../components/ObservableLangChooser";
 import { BindObservable, BooleanTransformer, ConstrainedNumberTransformer, TimeTransformer, Transformer } from "../components/BindObservable";
 import { ActionTrigger } from "../data/study/ActionTrigger";
 import { Schedule } from "../data/study/Schedule";
-import { EventTrigger } from "../data/study/EventTrigger";
+import { CUE_WEARABLE, EventTrigger, SHOW_GOOGLE_HEALTH, WEARABLE_EVENTS, WEARABLE_PROVIDERS, WEARABLE_PROVIDER_ANY, WEARABLE_PROVIDER_GOOGLE_HEALTH } from "../data/study/EventTrigger";
 import { TitleRow } from "../components/TitleRow";
 import { PrimitiveType } from "../observable/types/PrimitiveType";
 import { ACTION_INVITATION } from "../constants/actions";
@@ -164,6 +164,7 @@ export class Content extends SectionContent {
 		const action = actionTrigger.actions.get()[0]
 		const study = this.getStudyOrThrow()
 		this.editEventAsTitle = true
+		const isSensor = event.cueCode.get() == CUE_WEARABLE
 
 		return <div>
 			{DashRow(
@@ -187,6 +188,7 @@ export class Content extends SectionContent {
 										<option>statistic_viewed</option>
 										<option>study_message</option>
 										<option>study_updated</option>
+										<option value={CUE_WEARABLE}>{Lang.get("cue_wearable_event")}</option>
 									</select>
 								</label>
 							</div>
@@ -217,7 +219,7 @@ export class Content extends SectionContent {
 								</label>
 							</div>
 					}),
-				DashElement("stretched", {
+				!isSensor && DashElement("stretched", {
 					content:
 						<div class="vertical">
 							<label class="noTitle noDesc">
@@ -242,9 +244,133 @@ export class Content extends SectionContent {
 				}),
 			)}
 
+			{isSensor && this.getSensorView(study, event)}
+
 			{TitleRow(Lang.getWithColon("action"))}
 			{DashRow(...this.getActionView(study, action))}
 		</div>
+	}
+
+	private isEventSupportedBy(wearableEvent: string, provider: string): boolean {
+		const entry = WEARABLE_EVENTS[wearableEvent]
+		if (!entry)
+			return false
+		if (provider == WEARABLE_PROVIDER_ANY)
+			return entry.withings != null || entry.fitbit != null || entry.googlehealth
+		const supported = (entry as Record<string, unknown>)[provider]
+		return supported != null && supported !== false
+	}
+
+	/**
+	 * "If this sensor event, then this prompt - else fall back to a fixed time."
+	 * Sensor events arrive as provider webhooks (Withings notify / Fitbit subscriptions);
+	 * the fallback turns the trigger into a time-contingent one when the sensor stays silent.
+	 */
+	private getSensorView(study: Study, event: EventTrigger): (Vnode<any, any> | false)[] {
+		const provider = event.wearableProvider.get()
+		// Hidden unless enabled, but a study that already uses it (e.g. imported source) must keep rendering.
+		const offeredProviders = SHOW_GOOGLE_HEALTH || provider == WEARABLE_PROVIDER_GOOGLE_HEALTH
+			? [...WEARABLE_PROVIDERS, WEARABLE_PROVIDER_GOOGLE_HEALTH]
+			: WEARABLE_PROVIDERS
+		const supported = this.isEventSupportedBy(event.wearableEvent.get(), provider)
+		const providerOffered = provider == WEARABLE_PROVIDER_ANY
+			? study.wearablesProviders.get().length == 0 || offeredProviders.some((p) => study.wearablesProviders.indexOf(p) != -1)
+			: study.wearablesProviders.get().length == 0 || study.wearablesProviders.indexOf(provider) != -1
+		const windowEnabled = event.wearableWindowEnabled.get()
+
+		return [
+			TitleRow(Lang.getWithColon("sensor_if")),
+			DashRow(
+				DashElement(null, {
+					content:
+						<div>
+							<label>
+								<small>{Lang.get("wearables_provider")}</small>
+								<select {...BindObservable(event.wearableProvider)}>
+									<option value={WEARABLE_PROVIDER_ANY}>{Lang.get("sensor_provider_any")}</option>
+									{offeredProviders.map((p) => <option value={p}>{Lang.getDynamic(p == "googlehealth" ? "googlehealth_experimental" : p)}</option>)}
+								</select>
+							</label>
+						</div>
+				}),
+				DashElement(null, {
+					content:
+						<div>
+							<label>
+								<small>{Lang.get("sensor_event")}</small>
+								<select {...BindObservable(event.wearableEvent)}>
+									{Object.keys(WEARABLE_EVENTS).map((key) =>
+										<option value={key}>{Lang.getDynamic(`sensor_event_${key}`)}</option>)}
+								</select>
+							</label>
+						</div>
+				}),
+				DashElement(null, {
+					content:
+						<div>
+							<label>
+								<small>{Lang.get("sensor_max_per_day")}</small>
+								<input type="number" min="1" style="width:4.5em" {...BindObservable(event.wearableMaxPerDay, new ConstrainedNumberTransformer(1, undefined))} />
+							</label>
+						</div>
+				}),
+				DashElement("stretched", {
+					content:
+						<div class="vertical">
+							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(event.wearableWindowEnabled)} />
+								<span>{Lang.get("sensor_window_only")}</span>
+							</label>
+							{windowEnabled &&
+								<div class="horizontal hAlignStart" style="flex-wrap:wrap;gap:16px">
+									<label>
+										<small>{Lang.get("startTime")}</small>
+										<input type="time" {...BindObservable(event.wearableWindowStart, TimeTransformer)} />
+									</label>
+									<label>
+										<small>{Lang.get("endTime")}</small>
+										<input type="time" {...BindObservable(event.wearableWindowEnd, TimeTransformer)} />
+									</label>
+								</div>
+							}
+						</div>
+				})
+			),
+			(!supported || !study.wearablesEnabled.get() || !providerOffered || provider != "withings") && DashRow(
+				DashElement("stretched", {
+					content:
+						<div>
+							{!supported && <small class="center"><div class="inlineIcon">{m.trust(warnSvg)}</div>{Lang.get("sensor_event_unsupported")}</small>}
+							{!study.wearablesEnabled.get() && <small class="center"><div class="inlineIcon">{m.trust(warnSvg)}</div>{Lang.get("sensor_wearables_disabled")}</small>}
+							{study.wearablesEnabled.get() && !providerOffered && <small class="center"><div class="inlineIcon">{m.trust(warnSvg)}</div>{Lang.get("sensor_provider_not_offered")}</small>}
+							{(provider == "fitbit" || provider == WEARABLE_PROVIDER_ANY) && <small class="center"><div class="inlineIcon">{m.trust(warnSvg)}</div>{Lang.get("sensor_fitbit_shutdown")}</small>}
+							{provider == WEARABLE_PROVIDER_GOOGLE_HEALTH && <small class="center"><div class="inlineIcon">{m.trust(warnSvg)}</div>{Lang.get("sensor_googlehealth_note")}</small>}
+						</div>
+				})
+			),
+
+			TitleRow(Lang.getWithColon("sensor_else")),
+			DashRow(
+				DashElement("stretched", {
+					content:
+						<div class="vertical">
+							<label class="noTitle noDesc">
+								<input type="checkbox" {...BindObservable(event.fallbackEnabled)} />
+								<span>{Lang.get("sensor_fallback_enable")}</span>
+							</label>
+							{event.fallbackEnabled.get() &&
+								<div class="horizontal hAlignStart vAlignCenter" style="flex-wrap:wrap;gap:16px">
+									<label>
+										<small>{Lang.get("sensor_fallback_time")}</small>
+										<input type="time" {...BindObservable(event.fallbackTimeOfDay, TimeTransformer)} />
+									</label>
+									<small>{Lang.get("sensor_fallback_info")}</small>
+								</div>
+							}
+						</div>
+				})
+			)
+		]
 	}
 
 	/**

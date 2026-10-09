@@ -188,7 +188,7 @@ class PushScheduler {
 	}
 
 	/** [body, reminderCount, reminderDelayMs] for a trigger's notifying action, or null. */
-	private static function notificationAction(array $at): ?array {
+	public static function notificationAction(array $at): ?array {
 		foreach(($at['actions'] ?? []) as $a) {
 			// Action.type defaults to 1 (Invitation) in the model, and DataStructure omits
 			// default-valued fields when serialising — so a plain invitation action has NO
@@ -223,7 +223,7 @@ class PushScheduler {
 	 * Mirrors the PWA's availability.ts window logic: a per-notification timeout
 	 * takes precedence, else the fixed completion-window end.
 	 */
-	private static function deadlineTod(array $q, int $baseLocalTod): ?int {
+	public static function deadlineTod(array $q, int $baseLocalTod): ?int {
 		$timeout = (int) ($q['completableMinutesAfterNotification'] ?? 0);
 		if(!empty($q['completableOncePerNotification']) && $timeout > 0)
 			return min(self::ONE_DAY, $baseLocalTod + $timeout * 60000);
@@ -236,7 +236,7 @@ class PushScheduler {
 	}
 
 	/** Append " Complete by HH:MM." to a body when the questionnaire opts in and a deadline exists. */
-	private static function appendDeadline(string $body, bool $include, ?int $deadlineTod): string {
+	public static function appendDeadline(string $body, bool $include, ?int $deadlineTod): string {
 		if(!$include || $deadlineTod === null)
 			return $body;
 		$secs = intdiv($deadlineTod, 1000);
@@ -271,7 +271,7 @@ class PushScheduler {
 		}
 	}
 
-	private static function dayIndex(int $localMs, int $anchorDayLocal): int {
+	public static function dayIndex(int $localMs, int $anchorDayLocal): int {
 		return intdiv((intdiv($localMs, self::ONE_DAY) * self::ONE_DAY) - $anchorDayLocal, self::ONE_DAY);
 	}
 

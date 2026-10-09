@@ -177,6 +177,14 @@ class PathsFS {
 		return self::folderWearablesData($studyId) . Paths::makeUrlFriendly($userId) . '.' . Paths::makeSafe($provider) . '.state';
 	}
 
+	/** Webhook-derived sensor events ("new sleep data arrived"), JSONL, one file per participant. */
+	static function folderWearablesEvents(int $studyId): string {
+		return self::folderStudies() . "$studyId/.wearables_events/";
+	}
+	static function fileWearablesEvents(int $studyId, string $userId): string {
+		return self::folderWearablesEvents($studyId) . Paths::makeUrlFriendly($userId) . '.jsonl';
+	}
+
 	// OAuth CSRF states are global (the provider callback carries only `state`, not a
 	// study id); the state file content records which study/participant it belongs to.
 	static function folderWearablesOAuthStates(): string {

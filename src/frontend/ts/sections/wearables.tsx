@@ -3,6 +3,7 @@ import m, { Vnode } from "mithril";
 import { Lang } from "../singletons/Lang";
 import { BindObservable } from "../components/BindObservable";
 import { Study } from "../data/study/Study";
+import { SHOW_GOOGLE_HEALTH, WEARABLE_PROVIDER_GOOGLE_HEALTH } from "../data/study/EventTrigger";
 import { DashRow } from "../components/DashRow";
 import { DashElement } from "../components/DashElement";
 import { SectionData } from "../site/SectionData";
@@ -18,7 +19,7 @@ interface WearableInfo {
 	hasData: boolean
 }
 
-const PROVIDER_LABEL: Record<string, string> = { fitbit: "Fitbit", withings: "Withings", oura: "Oura Ring" }
+const PROVIDER_LABEL: Record<string, string> = { fitbit: "Fitbit", withings: "Withings", oura: "Oura Ring", googlehealth: "Google Health (experimental, untested)" }
 
 /**
  * Dedicated study-level admin panel for wearable data sharing: enable it, pick which
@@ -56,7 +57,8 @@ export class Content extends SectionContent {
 		const study = this.getStudyOrThrow()
 		const info = this.info
 		const enabled = study.wearablesEnabled.get()
-		const providers = info.allProviders.length ? info.allProviders : ["fitbit", "withings", "oura"]
+		const providers = (info.allProviders.length ? info.allProviders : ["fitbit", "withings", "oura"])
+			.filter((p) => SHOW_GOOGLE_HEALTH || p != WEARABLE_PROVIDER_GOOGLE_HEALTH)
 
 		return <div>
 			{DashRow(

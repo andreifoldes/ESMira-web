@@ -14,10 +14,11 @@ flowchart LR
   AT --> EV["eventTriggers[]<br/>(cue-based)"]
   AT --> ACT["actions[]<br/>invitation / message / notification"]
   SCH -->|executed| PS["PushScheduler.php<br/>+ availability.ts"]
-  EV -.->|"saved, NOT executed here"| X["native ESMira apps only"]
+  EV -->|"cue wearable_event: executed"| SS["SensorTriggerScheduler.php"]
+  EV -.->|"other cues: saved, NOT executed here"| X["native ESMira apps only"]
 ```
 
-The designer creates **one schedule or one event per trigger**, although the data model allows more.
+The designer creates **one schedule or one event (or sensor trigger) per trigger**, although the data model allows more.
 
 ## Schedules {/* #schedules */}
 
@@ -65,26 +66,64 @@ Only types 1 and 3 produce a Web Push.
 
 Details: [Web Push](./web-push.md), [Participant flow](../pwa/participant-flow.md#availability).
 
+## Sensor triggers {/* #sensor-triggers */}
+
+<span className="status status--partial">Partial</span> Implemented end to end; **not yet tested against live
+Withings or Fitbit accounts** (unit-tested scheduling logic only).
+
+*If the wearable reports new data, then send the prompt; otherwise send it at a fixed time anyway.* Add one
+with **Add sensor trigger** in the questionnaire's *Filter and trigger* section (or pick *Wearable sensor event*
+as the cue of an event trigger).
+
+| Setting | Meaning |
+| --- | --- |
+| Provider | `any` connected wearable, `withings` or `fitbit`. (`googlehealth` exists in the backend as a hidden, untested placeholder; see [Wearables](./wearables.md#google-health-api).) |
+| New data of type | `sleep`, `activity`, `weight`, `blood_pressure` (Withings only), `ecg` (Withings only). The designer warns when the chosen provider has no webhook for the type. |
+| Only within a daily window | Ignore events outside `wearableWindowStart`–`wearableWindowEnd` (participant-local; may wrap midnight), e.g. 05:00–12:00 for a wake-up prompt. |
+| Max. prompts per day | `wearableMaxPerDay` (default 1) per participant and local day. |
+| Delay | The existing delay fields: fixed, or a stable pseudo-random value between `delayMinimumSec` and `delaySec`. |
+| Fallback | `fallbackEnabled` + `fallbackTimeOfDay`: at that local time, send the prompt if no qualifying event arrived earlier that day. This also covers participants who never linked a device. |
+
+Behaviour worth knowing:
+
+- The fallback **counts against the daily cap**: a sensor event that arrives after the fallback fired does not
+  prompt a second time (with the default cap of 1).
+- Reminders (`reminder_count`, `reminder_delay_minu`) follow a sensor or fallback prompt and stop once the
+  participant submits anything.
+- Prompts older than **2 hours** are dropped rather than sent (no back-filling after downtime). On a
+  participant's first run, a fallback time that already passed is skipped too; a fresh sensor event is not.
+- The daily cap counts on the day the prompt is *shown* (after any delay), not the day the sensor reported.
+- The PWA treats a questionnaire that has only sensor triggers as always available, so a "complete by" time
+  shown in the notification (`completableOncePerNotification`) is not enforced in the app.
+- The questionnaire's own duration fields (start/end date, activation and expiry days after joining) still apply.
+- Delivery is by **Web Push** only, from the same per-minute sender as time-based schedules, and needs push
+  enabled for the study.
+- A webhook says only that *new data of a category exists*. There is **no value condition** (for example
+  "slept under six hours") and no real wake-up detection; "new sleep data synced" is the proxy.
+
+Server setup and the webhook endpoint: [Wearables](./wearables.md#webhooks-and-sensor-triggers).
+
 ## Event triggers {/* #event-triggers */}
 
-<span className="status status--partial">Partial</span> Configurable, not executed.
+<span className="status status--partial">Partial</span> Configurable, not executed (except the sensor cue above).
 
 An event trigger is a **cue**, not a free-form condition. The designer's `cueCode` options are exactly:
 
 `actions_executed`, `invitation`, `invitation_missed`, `joined`, `quit`, `questionnaire`, `rejoined`,
-`reminder`, `schedule_changed`, `statistic_viewed`, `study_message`, `study_updated`.
+`reminder`, `schedule_changed`, `statistic_viewed`, `study_message`, `study_updated`, and, added by this fork,
+`wearable_event` (see above).
 
 Plus a delay (fixed, or random between `delayMinimumSec` and `delaySec`), "skip this questionnaire"
 (only events from other questionnaires), and an optional filter to events from one specific questionnaire.
 
 :::warning[Not executed by this fork's web path]
-A search of `src/backend`, `src/api`, `src/cli` and `web-pwa/src` found **no code that fires event
-triggers**. `PushScheduler` skips event-triggered questionnaires in its window-opening pass, and the PWA has no
+Apart from `wearable_event`, a search of `src/backend`, `src/api`, `src/cli` and `web-pwa/src` found **no code
+that fires event triggers**. `PushScheduler` skips event-triggered questionnaires in its window-opening pass, and the PWA has no
 executor. Event execution is a behaviour of ESMira's native apps, which this repository does not contain.
 This is an inference from reading the code; it has not been tested end to end.
 :::
 
-There is **no general "if-this-then-that" condition builder**. The `Conditions` structure (key, value,
+There is **no general "if-this-then-that" condition builder**: the sensor trigger is a fixed *event + window + cap + fallback* form. The `Conditions` structure (key, value,
 equal/unequal/greater/less, AND/OR) is used only for chart axes, not scheduling.
 
 <span className="status status--tbc">TBC</span> Event-contingent and adaptive designs: see

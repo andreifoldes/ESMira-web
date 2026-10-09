@@ -63,6 +63,26 @@ abstract class WearablesProvider {
 	 */
 	abstract public function fetchData(string $accessToken, string $providerUserId, string $dataType, int $startMs, int $endMs): array;
 
+	/**
+	 * False when webhooks are subscribed once per server (Google Health AUTOMATIC subscriptions)
+	 * instead of per participant, so linking has nothing to subscribe.
+	 */
+	public function subscribesPerUser(): bool {
+		return true;
+	}
+
+	/**
+	 * Register provider-side webhooks ("new data of this kind arrived") that call
+	 * $callbackUrl. Best effort and per kind: a kind the granted scopes do not cover
+	 * must not stop the others. Default: provider has no webhook support.
+	 * @param string[] $kinds WearablesEventKinds names this provider supports
+	 * @return int number of kinds now subscribed
+	 * @throws WearablesException on transport failure
+	 */
+	public function subscribeWebhooks(string $accessToken, string $providerUserId, string $callbackUrl, array $kinds): int {
+		return 0;
+	}
+
 	// --- shared helpers -----------------------------------------------------------
 
 	/** Normalize a raw token response into our internal shape. */

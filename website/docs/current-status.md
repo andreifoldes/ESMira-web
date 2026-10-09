@@ -11,9 +11,9 @@ This page takes each promise made for iEMAbot and states, from the code, whether
 <span className="status status--tbc">TBC</span>. It was written by reading the repository.
 
 :::caution[Read this before citing these features]
-Several statements below describe intended capabilities (Telegram delivery, wearable-triggered
-prompts, event-contingent execution) that **do not exist in the code yet**. They are listed here as TBC
-on purpose.
+Several statements below describe intended capabilities (Telegram delivery, event-contingent execution
+for ESMira's built-in cues) that **do not exist in the code yet**. They are listed here as TBC on purpose.
+Wearable webhook triggers exist in code but have not been tested against live Withings or Fitbit accounts, and Fitbit's legacy Web API (which ESMira's Fitbit support uses) is scheduled to be turned off on 2026-10-30. A Google Health API trigger path exists only as an untested placeholder, because Google is not onboarding new projects.
 :::
 
 ## Summary table
@@ -25,12 +25,12 @@ on purpose.
 | 3 | Delivery via the **Telegram Bot API** | <span className="status status--tbc">TBC</span> | No Telegram code exists. |
 | 4 | Platform-agnostic architecture, extensible to **WhatsApp / SMS** | <span className="status status--tbc">TBC</span> | No channel-adapter layer. Web Push is the only server-initiated channel. |
 | 5 | Passive data from **Withings and Fitbit** via **OAuth 2.0** | <span className="status status--shipped">Shipped</span> | Full authorization-code flow, encrypted token store, hourly sync, CSV export. See [Wearables](./backend/wearables.md). |
-| 6 | …used to **trigger or contextualize prompts in real time** | <span className="status status--tbc">TBC</span> | Wearable data is stored for researchers only. No code reads it to schedule or tailor a prompt; sync is hourly and lags by a day. |
+| 6 | …used to **trigger or contextualize prompts in real time** | <span className="status status--partial">Partial</span> | **Trigger:** a designer *sensor trigger* fires a prompt when a Withings or Fitbit webhook reports new sleep, activity, weight, blood-pressure or ECG data, with an optional time fallback. The webhook carries no measurement, so there is no value condition ("slept < 6 h") and no wake-detection logic beyond "new sleep data arrived". **Contextualize:** not done. Not yet verified against live provider accounts. See [Scheduling](./backend/scheduling.md#sensor-triggers) and [Wearables](./backend/wearables.md#webhooks-and-sensor-triggers). |
 | 7 | Deployable on low-spec VPS for **under €10/month** | <span className="status status--partial">Partial</span> | One Docker container (PHP 8.3 + Apache), flat files plus an embedded SQLite file, no database server, two cron jobs. No resource benchmarks or cost breakdown have been measured, so the € figure is unverified. See [Docker and cron](./deployment/docker-and-cron.md). |
 | 8 | **Self-hosted**, full data control | <span className="status status--shipped">Shipped</span> | All data lives in a mounted volume on your server. Two third-party hops exist by design (browser push services; wearable provider APIs). See [Data and privacy](./backend/data-and-privacy.md). |
 | 9 | **GDPR compliance** via encrypted channels | <span className="status status--partial">Partial</span> | Mechanisms exist (wearable tokens encrypted at rest; push payloads encrypted by the Web Push protocol; consent form; researcher export and study reset). HTTPS is expected from a reverse proxy but **not enforced in code**; plaintext secrets sit in the server config; compliance documentation and a DPIA are **in progress** and not yet published. See [Data and privacy](./backend/data-and-privacy.md). |
 | 10 | Web-based **management interface** for protocols | <span className="status status--shipped">Shipped</span> | ESMira's designer, plus fork-added Push and Wearables panels. See [Study model](./backend/study-model.md). |
-| 11 | Flexible **"if-this-then-that" scheduling**, including **event-contingent**, **adaptive** and **wake-up-triggered** designs | <span className="status status--partial">Partial</span> | Time-based schedules (fixed and random signal times) are executed, see row 12. Event triggers can be *configured* in the designer but are **not executed** by the server push or the PWA, so event-contingent designs are designer-only. There is no adaptive scheduling logic: per-question show-if conditions branch within a questionnaire, not across prompts. There is no wake-detection code, see row 6. See [Scheduling](./backend/scheduling.md). |
+| 11 | Flexible **"if-this-then-that" scheduling**, including **event-contingent**, **adaptive** and **wake-up-triggered** designs | <span className="status status--partial">Partial</span> | Time-based schedules (fixed and random signal times) are executed, see row 12. **Sensor triggers** (wearable webhook → prompt, with a time-of-day fallback, daily cap and delay) are configurable in the designer and executed by the push sender. ESMira's built-in cue triggers (`joined`, `questionnaire`, …) can be configured but are **not executed** by the server push or the PWA. There is no adaptive scheduling logic: per-question show-if conditions branch within a questionnaire, not across prompts. See [Scheduling](./backend/scheduling.md). |
 | 12 | **Time-contingent** EMA designs | <span className="status status--shipped">Shipped</span> | Daily/weekday/day-of-month schedules, reminders, completion windows. |
 | 13 | **Multi-point daily sampling** for diurnal trajectories | <span className="status status--shipped">Shipped</span> | Multiple signal times per day, random windows with a minimum gap, availability windows. |
 | 14 | Capture of **cognition** across the day | <span className="status status--shipped">Shipped</span> | Embedded cognitive tasks (iframe + `postMessage`). The task pages themselves are hosted outside this repo. See [Cognitive tasks](./pwa/cognitive-tasks.md). |
@@ -47,18 +47,23 @@ completed"), each with an action (invitation, message, notification). In this fo
 
 - <span className="status status--shipped">Shipped</span> **Schedules** are executed by
   `PushScheduler.php` (server Web Push) and mirrored client-side in `availability.ts`.
-- <span className="status status--tbc">TBC</span> **Event triggers** are saved in the study JSON and editable
-  in the designer, but no code in `src/backend`, `src/api`, `src/cli` or `web-pwa/src` fires them. Event
-  execution is a behaviour of ESMira's *native* apps, which this repository does not contain.
+- <span className="status status--partial">Partial</span> **Sensor triggers** (cue `wearable_event`) are
+  executed by `SensorTriggerScheduler.php` from provider webhooks, with a time-contingent fallback. Not yet
+  tested against live providers. They reach participants through Web Push only.
+- <span className="status status--tbc">TBC</span> **Other event triggers** (the built-in cues such as
+  `joined` or `questionnaire`) are saved in the study JSON and editable in the designer, but no code in
+  `src/backend`, `src/api`, `src/cli` or `web-pwa/src` fires them. Their execution is a behaviour of ESMira's
+  *native* apps, which this repository does not contain.
 
 Details and the exact cue list: [Scheduling](./backend/scheduling.md).
 
 ### Wearables
 
-The pipeline ends at storage. Data flows *provider → server CSV → researcher download*. Nothing in the
-notification scheduler, the availability logic, the survey engine or the service worker references wearable
-data. Making wearables drive prompts would need (a) a sub-day sync cadence, (b) a wake-detection rule, and
-(c) an event-trigger executor, none of which exist. See [Wearables](./backend/wearables.md).
+Measurement data still ends at storage: *provider → hourly sync → server CSV → researcher download*, a day
+late. Prompts are driven by a separate, faster path: *provider webhook → `wearables_webhook.php` → sensor event
+→ push sender*. That path only learns that new data of a category exists, never its value, so value
+thresholds and real wake-detection would still need a data fetch on each event. See
+[Wearables](./backend/wearables.md#webhooks-and-sensor-triggers).
 
 ### GDPR and encrypted channels
 

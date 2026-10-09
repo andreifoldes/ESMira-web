@@ -8,6 +8,7 @@ use backend\FileSystemBasics;
 use backend\fileSystem\loader\UserDataLoader;
 use backend\fileSystem\PathsFS;
 use backend\Main;
+use backend\wearables\WearablesEventStore;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
 use Throwable;
@@ -71,6 +72,7 @@ class PushSender {
 			if(!is_dir($folder))
 				continue;
 			$studiesProcessed++;
+			$hasSensorTriggers = SensorTriggerScheduler::hasTriggers($study);
 
 			foreach(array_diff(scandir($folder), ['.', '..']) as $entry) {
 				if(self::isStateFile($entry))
@@ -109,6 +111,15 @@ class PushSender {
 				$sent      = (is_array($state) && isset($state['sent']) && is_array($state['sent'])) ? $state['sent'] : [];
 
 				$occurrences = PushScheduler::computeDueOccurrences($study, $anchor, $tz, $cursor, $now, $lastDataSetTime, $realized);
+				// Sensor-contingent triggers (wearable webhooks + time fallback) carry their own
+				// idempotence ledger instead of relying on the cursor.
+				$sensorLedger = (is_array($state) && isset($state['sensor']) && is_array($state['sensor'])) ? $state['sensor'] : [];
+				if($hasSensorTriggers) {
+					$events = WearablesEventStore::readSince($studyId, $userId, $now - SensorTriggerScheduler::EVENT_LOOKBACK_MS);
+					$occurrences = array_merge($occurrences, SensorTriggerScheduler::computeOccurrences(
+						$study, $events, $anchor, $tz, $now, $lastDataSetTime, $sensorLedger
+					));
+				}
 				// Coalesce everything due for this participant in this run into ONE push so
 				// clients are never flooded. The constant tag (REMINDER_TAG) additionally makes
 				// each successive push replace the previous one, so at most one is ever visible.
@@ -135,7 +146,7 @@ class PushSender {
 				// stable across the per-minute runs) and the sent ledger (pruned to a
 				// rolling 48h window) whether or not anything was due.
 				$sent = self::pruneSentLedger($sent, $now);
-				try { FileSystemBasics::writeFile($stateFile, json_encode(['cursor' => $now, 'realized' => $realized, 'sent' => $sent])); }
+				try { FileSystemBasics::writeFile($stateFile, json_encode(['cursor' => $now, 'realized' => $realized, 'sent' => $sent, 'sensor' => $sensorLedger])); }
 				catch(Throwable $e) { /* non-fatal */ }
 			}
 		}

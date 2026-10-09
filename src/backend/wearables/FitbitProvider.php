@@ -70,6 +70,36 @@ class FitbitProvider extends WearablesProvider {
 		return $rows;
 	}
 
+	/**
+	 * Fitbit Subscriptions API. The subscriber endpoint (and its verification code) is
+	 * registered once in the Fitbit developer console; per user we create one subscription
+	 * per collection. Fitbit requires the subscription ID to be unique per stream (user +
+	 * collection) - a shared ID makes every later subscription answer 409 - so it is derived
+	 * from both. 200/201 = subscribed (re-subscribing the same stream is a 200).
+	 * $callbackUrl is unused: Fitbit calls the endpoint registered for the application.
+	 */
+	public function subscribeWebhooks(string $accessToken, string $providerUserId, string $callbackUrl, array $kinds): int {
+		$count = 0;
+		foreach($kinds as $kind) {
+			$collection = WearablesEventKinds::FITBIT_COLLECTION[$kind] ?? null;
+			if($collection === null)
+				continue;
+			$subscriptionId = 'esmira-' . $collection . '-' . substr(sha1($providerUserId), 0, 16);
+			try {
+				$resp = WearablesHttp::postForm(
+					self::API_BASE . "/1/user/-/$collection/apiSubscriptions/$subscriptionId.json",
+					[], null, ['Authorization' => "Bearer $accessToken"]
+				);
+			}
+			catch(WearablesException $e) {
+				continue; // one unreachable call must not stop the other collections
+			}
+			if(in_array($resp['status'], [200, 201], true))
+				$count++;
+		}
+		return $count;
+	}
+
 	/** @return mixed|null decoded payload for one date, or null when unsupported/empty */
 	private function fetchForDate(string $token, string $dataType, string $date) {
 		switch($dataType) {

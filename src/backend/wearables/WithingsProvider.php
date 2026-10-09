@@ -19,6 +19,8 @@ class WithingsProvider extends WearablesProvider {
 	const SLEEP_URL    = 'https://wbsapi.withings.net/v2/sleep';
 	const ACTIVITY_URL = 'https://wbsapi.withings.net/v2/measure';
 	const HEART_URL    = 'https://wbsapi.withings.net/v2/heart';
+	const NOTIFY_URL   = 'https://wbsapi.withings.net/notify';
+	const STATUS_ALREADY_SUBSCRIBED = 294;
 	const SCOPES       = 'user.info,user.metrics,user.activity,user.sleepevents';
 
 	public function key(): string { return 'withings'; }
@@ -93,6 +95,35 @@ class WithingsProvider extends WearablesProvider {
 			default:
 				return [];
 		}
+	}
+
+	/**
+	 * Withings "Notify": one subscription per (user, appli). Status 294 = already
+	 * subscribed (re-linking), which is fine. Other non-zero statuses (e.g. a scope that was
+	 * not granted) skip that kind only.
+	 */
+	public function subscribeWebhooks(string $accessToken, string $providerUserId, string $callbackUrl, array $kinds): int {
+		$count = 0;
+		foreach($kinds as $kind) {
+			$appli = WearablesEventKinds::WITHINGS_APPLI[$kind] ?? null;
+			if($appli === null)
+				continue;
+			try {
+				$resp = WearablesHttp::postForm(self::NOTIFY_URL, [
+					'action'      => 'subscribe',
+					'callbackurl' => $callbackUrl,
+					'appli'       => $appli,
+					'comment'     => 'ESMira sensor-triggered prompts',
+				], null, ['Authorization' => "Bearer $accessToken"]);
+			}
+			catch(WearablesException $e) {
+				continue; // one unreachable call must not stop the other kinds
+			}
+			$status = (int) ($resp['json']['status'] ?? -1);
+			if($status === 0 || $status === self::STATUS_ALREADY_SUBSCRIBED)
+				$count++;
+		}
+		return $count;
 	}
 
 	/** POST a Withings form and return the `body` object, throwing on non-zero status. */

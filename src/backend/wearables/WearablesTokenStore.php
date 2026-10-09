@@ -56,10 +56,17 @@ class WearablesTokenStore {
 		return is_array($data) ? $data : null;
 	}
 
+	/** Remove only the credentials, keeping already collected data (used when a provider is replaced). */
+	public static function deleteToken(int $studyId, string $userId, string $provider): void {
+		@unlink(PathsFS::fileWearablesToken($studyId, $userId, $provider));
+	}
+
 	public static function delete(int $studyId, string $userId, string $provider): void {
 		@unlink(PathsFS::fileWearablesToken($studyId, $userId, $provider));
 		@unlink(PathsFS::fileWearablesData($studyId, $userId, $provider));
 		@unlink(PathsFS::fileWearablesSyncState($studyId, $userId, $provider));
+		if(empty(self::listProviders($studyId, $userId))) // no linked device left: drop the event log too
+			WearablesEventStore::delete($studyId, $userId);
 	}
 
 	/** Connected provider slugs for a participant (by reading each token file). */

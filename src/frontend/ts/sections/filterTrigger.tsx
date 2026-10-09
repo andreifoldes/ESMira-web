@@ -7,7 +7,7 @@ import schedulesSvg from "../../imgs/icons/schedules.svg?raw"
 import eventsSvg from "../../imgs/icons/events.svg?raw"
 import warnSvg from "../../imgs/icons/warn.svg?raw";
 import { ActionTrigger } from "../data/study/ActionTrigger";
-import { EventTrigger } from "../data/study/EventTrigger";
+import { CUE_WEARABLE, EventTrigger } from "../data/study/EventTrigger";
 import { Schedule } from "../data/study/Schedule";
 import { DashRow } from "../components/DashRow";
 import { DashElement } from "../components/DashElement";
@@ -90,6 +90,25 @@ export class Content extends SectionContent {
 			actions: [{}]
 		})
 		this.newSection(`triggerEdit,qId:${questionnaire.internalId.get()},triggerI:${questionnaire.actionTriggers.get().length - 1}`)
+	}
+
+	private addSensorEvent(questionnaire: Questionnaire): void {
+		questionnaire.actionTriggers.push({
+			eventTriggers: [{ cueCode: CUE_WEARABLE }],
+			actions: [{}]
+		})
+		this.newSection(`triggerEdit,qId:${questionnaire.internalId.get()},triggerI:${questionnaire.actionTriggers.get().length - 1}`)
+	}
+
+	private getEventTitle(eventTrigger: EventTrigger): string {
+		if (eventTrigger.cueCode.get() != CUE_WEARABLE)
+			return `${eventTrigger.cueCode.get()}. ${Lang.get('after_x_seconds', eventTrigger.delaySec.get())}`
+		const provider = eventTrigger.wearableProvider.get()
+		const providerLabel = provider == "any" ? Lang.get("sensor_provider_any") : Lang.getDynamic(provider == "googlehealth" ? "googlehealth_experimental" : provider)
+		const fallback = eventTrigger.fallbackEnabled.get()
+			? ` → ${timeStampToTimeString(getMidnightMillis(Date.now()) + eventTrigger.fallbackTimeOfDay.get())}`
+			: ""
+		return `${providerLabel}: ${Lang.getDynamic(`sensor_event_${eventTrigger.wearableEvent.get()}`)}${fallback}`
 	}
 
 	private getSchedule(actionTrigger: ActionTrigger): Schedule {
@@ -185,6 +204,7 @@ export class Content extends SectionContent {
 				DashElement("horizontal",
 					{ content: BtnCustom(m.trust(schedulesSvg), undefined, Lang.get("add_schedule")), onclick: this.addSchedule.bind(this, questionnaire) },
 					{ content: BtnCustom(m.trust(eventsSvg), undefined, Lang.get("add_event")), onclick: this.addEvent.bind(this, questionnaire) },
+					{ content: BtnCustom(m.trust(eventsSvg), undefined, Lang.get("add_sensor_event")), onclick: this.addSensorEvent.bind(this, questionnaire) },
 				),
 			)}
 			{DashRow(
@@ -241,7 +261,7 @@ export class Content extends SectionContent {
 									this.getScheduleTitle(schedule)
 								)
 								: BtnCustom(m.trust(eventsSvg), undefined,
-									`${eventTrigger.cueCode.get()}. ${Lang.get('after_x_seconds', eventTrigger.delaySec.get())}`
+									this.getEventTitle(eventTrigger)
 								)
 							}
 						</a>

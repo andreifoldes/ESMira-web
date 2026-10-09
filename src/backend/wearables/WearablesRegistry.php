@@ -18,6 +18,7 @@ class WearablesRegistry {
 		'fitbit'   => FitbitProvider::class,
 		'withings' => WithingsProvider::class,
 		'oura'     => OuraProvider::class,
+		'googlehealth' => GoogleHealthProvider::class,
 	];
 
 	public static function isKnown(string $name): bool {
@@ -67,5 +68,33 @@ class WearablesRegistry {
 		$host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
 		$dir    = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/api/x.php')), '/');
 		return "$scheme://$host$dir/wearables_oauth.php";
+	}
+
+	/**
+	 * Server-to-server callback for "new data" webhooks. Withings has no request signature,
+	 * so its URL carries a key derived from the server-side client secret; Fitbit signs its
+	 * requests instead (see WearablesWebhook::verifyFitbitSignature).
+	 */
+	public static function webhookUri(string $provider): string {
+		$configured = (string) Configs::get('wearables_webhook_uri');
+		if($configured !== '')
+			$base = $configured;
+		else {
+			$redirect = self::redirectUri();
+			$base = substr($redirect, 0, (int) strrpos($redirect, '/') + 1) . 'wearables_webhook.php';
+		}
+		$query = ['provider' => $provider];
+		$key = self::webhookKey($provider);
+		if($key !== null)
+			$query['k'] = $key;
+		return $base . '?' . http_build_query($query);
+	}
+
+	/** Shared secret embedded in the callback URL, or null without provider credentials. */
+	public static function webhookKey(string $provider): ?string {
+		$creds = self::credentials($provider);
+		if($creds === null || $provider !== 'withings') // Fitbit signs, Google Health sends a secret header
+			return null;
+		return substr(hash_hmac('sha256', "webhook:$provider", $creds['client_secret']), 0, 32);
 	}
 }

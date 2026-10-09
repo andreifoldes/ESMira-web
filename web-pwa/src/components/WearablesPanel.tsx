@@ -15,6 +15,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   fitbit: 'Fitbit',
   withings: 'Withings',
   oura: 'Oura Ring',
+  googlehealth: 'Google Health',
 };
 
 function providerLabel(p: string): string {

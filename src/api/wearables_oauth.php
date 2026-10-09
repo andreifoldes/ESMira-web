@@ -4,6 +4,7 @@ use backend\Main;
 use backend\wearables\WearablesOAuthState;
 use backend\wearables\WearablesRegistry;
 use backend\wearables\WearablesTokenStore;
+use backend\wearables\WearablesWebhook;
 
 require_once dirname(__FILE__, 2) .'/backend/autoload.php';
 
@@ -59,6 +60,10 @@ try {
 	$token = $providerObj->exchangeCode($code, WearablesRegistry::redirectUri());
 	$token['created'] = Main::getMilliseconds();
 	WearablesTokenStore::save($studyId, $userId, $provider, $token);
+	WearablesWebhook::subscribe($provider, $token); // sensor-triggered prompts; best effort
+	// Google forbids one user holding a legacy Fitbit and a Google Health connection at once.
+	if($provider === 'googlehealth')
+		WearablesTokenStore::deleteToken($studyId, $userId, 'fitbit');
 	backToPwa($provider, 'connected');
 }
 catch(Throwable $e) {

@@ -86,6 +86,8 @@ class WearablesDataSync {
 		if($providerObj === null)
 			return 0; // provider no longer configured on the server
 
+		if(empty($providerObj->dataTypes()))
+			return 0; // trigger-only provider (Google Health): nothing to download
 		$access = WearablesTokenStore::getValidAccessToken($studyId, $userId, $provider, $providerObj);
 		if($access === null)
 			return 0;
