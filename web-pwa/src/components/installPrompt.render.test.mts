@@ -186,7 +186,8 @@ describe('InstallPrompt (card) — desktop and Android without a prompt', () => 
   it('desktop Chromium without a prompt: address-bar guidance + collapsed phone handoff', async () => {
     const r = await renderPrompt({ env: { ua: UA.desktopChrome, platform: 'MacIntel' } });
     assert.match(r.text, /Click the install icon/);
-    assert.match(r.text, /Install iEMAbot/);
+    assert.match(r.text, /Install page as app/);
+    assert.match(r.text, /Open in app/);
     assert.match(r.text, /Use your phone instead/);
   });
 

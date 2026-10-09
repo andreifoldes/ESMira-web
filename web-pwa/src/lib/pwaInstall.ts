@@ -323,6 +323,11 @@ function emitInstallChange(): void {
   installListeners.forEach((notify) => notify());
 }
 
+/** `getInstalledRelatedApps` is Chromium-only and absent from lib.dom.d.ts. */
+interface InstalledAppsNavigator {
+  getInstalledRelatedApps?: () => Promise<unknown[]>;
+}
+
 /**
  * Ask the browser whether this origin's PWA is already installed on the device
  * (Chromium `getInstalledRelatedApps()`; recent versions answer for same-scope web
@@ -332,9 +337,9 @@ function emitInstallChange(): void {
  * when the API is missing or throws — callers then fall back to the generic guidance.
  */
 export async function detectPreinstalled(
-  nav: { getInstalledRelatedApps?: () => Promise<unknown[]> } | undefined = typeof navigator === 'undefined'
+  nav: InstalledAppsNavigator | undefined = typeof navigator === 'undefined'
     ? undefined
-    : navigator,
+    : (navigator as InstalledAppsNavigator),
 ): Promise<boolean> {
   if (!nav?.getInstalledRelatedApps) return false;
   try {

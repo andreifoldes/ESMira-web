@@ -135,8 +135,8 @@ function InstalledNotice({ install, className }: { install: PwaInstall; classNam
         <Check size={16} className="shrink-0 mt-0.5 text-primary" aria-hidden="true" />
         {install.desktop ? (
           <span>
-            iEMAbot is installed. Open it from its own window, your Dock or your app launcher, then
-            enter your invite code.
+            iEMAbot is installed. Click <strong>Open in app</strong> at the right end of the address
+            bar (or open it from your Dock or app launcher), then enter your invite code.
           </span>
         ) : (
           <span>
@@ -323,7 +323,7 @@ function instructionFor(platform: Exclude<InstallPlatform, 'native'>, install: P
         icon: Download,
         title: 'Install this app',
         steps: [
-          'Click the install icon (a screen with a down-arrow, or ⊕) at the right end of the address bar — or open the browser menu (⋮) and choose “Install iEMAbot…”.',
+          'Click the install icon (a screen with a down-arrow, or ⊕) at the right end of the address bar — or open the browser menu (⋮) → “Save and Share” → “Install page as app…”. If the address bar shows “Open in app” instead, it is already installed: click that.',
           'Open the installed app, then enter your invite code.',
         ],
       };
