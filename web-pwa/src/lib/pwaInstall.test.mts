@@ -411,7 +411,7 @@ describe('install prompt capture', () => {
     browser.window.dispatchEvent(event);
     assert.equal(await m.promptInstall(), true);
     assert.equal(event.promptCalls, 1);
-    assert.equal(m.getInstallSnapshot().canPrompt, false);
+    assert.deepEqual(m.getInstallSnapshot(), { canPrompt: false, installed: true });
   });
 
   it('promptInstall: dismissed → false, and the event is still cleared', async () => {

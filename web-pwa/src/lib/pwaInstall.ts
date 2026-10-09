@@ -393,6 +393,9 @@ export async function promptInstall(): Promise<boolean> {
   try {
     await prompt.prompt();
     const choice = await prompt.userChoice;
+    // Accepting is enough to advance the funnel now; `appinstalled` can lag the dialog
+    // (or never reach this tab), which left step 2 un-highlighted after a successful install.
+    if (choice.outcome === 'accepted') didInstall = true;
     return choice.outcome === 'accepted';
   } catch {
     // prompt() rejects if the event was already used / the page isn't eligible.
